@@ -1,0 +1,171 @@
+{
+  "schemaVersion": 1,
+  "id": "crmne.omastats",
+  "name": "OmaStats",
+  "version": "1.0.0",
+  "author": "Carmine Paolino",
+  "license": "MIT",
+  "description": "System monitor for the Omarchy bar: CPU, GPU, memory, disk, network, temperature, fan and battery stats with live graphs and a detailed panel. An iStat Menus-style activity monitor showing the machine's vital signs, configurable from inside the panel.",
+  "kinds": [
+    "service",
+    "bar-widget"
+  ],
+  "keepLoaded": true,
+  "entryPoints": {
+    "service": "OmaStatsService.qml",
+    "barWidget": "OmaStatsWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "OmaStats",
+    "description": "System monitor readouts with live mini graphs: CPU, GPU, memory, disk, network, temperature, fans and battery, each opening an iStat Menus-style panel with history graphs, ring gauges, sensors and top processes.",
+    "category": "System",
+    "aliases": [
+      "omastats",
+      "stats",
+      "system-monitor",
+      "activity-monitor",
+      "sysmon",
+      "monitor",
+      "cpu",
+      "gpu",
+      "memory",
+      "disk",
+      "network",
+      "sensors",
+      "temperature",
+      "fans",
+      "battery",
+      "istat"
+    ],
+    "allowMultiple": true,
+    "defaultSection": "right",
+    "defaults": {
+      "modules": "cpu,memory,network",
+      "style": "both",
+      "graphWidth": 36,
+      "temperatureUnit": "Celsius",
+      "refreshSeconds": 1,
+      "historySeconds": 240,
+      "publicIp": true,
+      "tabs": "cpu,memory,disks,network,sensors,battery",
+      "showProcesses": true,
+      "disksSource": "all",
+      "barSensors": "cpu",
+      "barLabels": "text"
+    },
+    "schema": [
+      {
+        "key": "modules",
+        "type": "string",
+        "label": "Bar modules",
+        "description": "Comma-separated, in order: cpu, gpu, memory, disks, network, sensors, battery. Battery and GPU only appear when present.",
+        "defaultValue": "cpu,memory,network"
+      },
+      {
+        "key": "tabs",
+        "type": "string",
+        "label": "Panel tabs",
+        "description": "Comma-separated tabs shown in the panel: cpu, memory, disks, network, sensors, battery.",
+        "defaultValue": "cpu,memory,disks,network,sensors,battery"
+      },
+      {
+        "key": "style",
+        "type": "enum",
+        "label": "Bar style",
+        "description": "Default look of each bar readout: graph, ring, figure (text), graph and figure (both), or ring and figure. The Settings page can override it per module.",
+        "options": [
+          "both",
+          "graph",
+          "ring",
+          "text",
+          "ring-text"
+        ],
+        "defaultValue": "both"
+      },
+      {
+        "key": "barLabels",
+        "type": "enum",
+        "label": "Bar labels",
+        "description": "Stacked letters (CPU, MEM, NET) like iStat Menus, or glyphs.",
+        "options": [
+          "text",
+          "icon"
+        ],
+        "defaultValue": "text"
+      },
+      {
+        "key": "disksSource",
+        "type": "string",
+        "label": "Disk readout source",
+        "description": "\"all\" or a block device such as nvme0n1.",
+        "defaultValue": "all"
+      },
+      {
+        "key": "barSensors",
+        "type": "string",
+        "label": "Sensor readouts",
+        "description": "Comma-separated: cpu, gpu, or hwmon ids like nct6687/fan1 (pick them on the Settings page).",
+        "defaultValue": "cpu"
+      },
+      {
+        "key": "graphWidth",
+        "type": "integer",
+        "label": "Bar graph width",
+        "description": "Width of each mini graph in the bar, in pixels.",
+        "min": 16,
+        "max": 120,
+        "step": 2,
+        "defaultValue": 36
+      },
+      {
+        "key": "temperatureUnit",
+        "type": "enum",
+        "label": "Temperature unit",
+        "options": [
+          "Celsius",
+          "Fahrenheit"
+        ],
+        "defaultValue": "Celsius"
+      },
+      {
+        "key": "refreshSeconds",
+        "type": "enum",
+        "label": "Refresh every (seconds)",
+        "defaultValue": "1",
+        "options": [
+          "0.1",
+          "0.2",
+          "0.5",
+          "1",
+          "2",
+          "5",
+          "10"
+        ]
+      },
+      {
+        "key": "historySeconds",
+        "type": "integer",
+        "label": "History (seconds)",
+        "description": "How far back the graphs reach.",
+        "min": 30,
+        "max": 3600,
+        "step": 30,
+        "defaultValue": 240
+      },
+      {
+        "key": "publicIp",
+        "type": "boolean",
+        "label": "Look up public IP",
+        "description": "Ask api.ipify.org for your public address while the Network page is open.",
+        "defaultValue": true
+      },
+      {
+        "key": "showProcesses",
+        "type": "boolean",
+        "label": "Top processes",
+        "description": "List the busiest processes on every page.",
+        "defaultValue": true
+      }
+    ]
+  }
+}
