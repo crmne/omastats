@@ -11,6 +11,8 @@ OmaStats is an independent project and is not affiliated with Bjango.
 
 ![OmaStats: a system monitor for the Omarchy bar](preview.png)
 
+![Memory, Network, Sensors and Settings pages](preview-pages.png)
+
 ## Modules
 
 | Module  | Bar readout                         | Panel                                                                 |
@@ -24,8 +26,6 @@ OmaStats is an independent project and is not affiliated with Bjango.
 | Battery | glyph by level · %                  | Charge and health rings, charge history, power, cycles, peripherals   |
 
 Battery and GPU only appear when the hardware exists.
-
-![Memory, Network, Sensors and Settings pages](preview-pages.png)
 
 ## Install
 
