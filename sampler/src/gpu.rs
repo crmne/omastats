@@ -1,7 +1,10 @@
-use crate::util::{list_dir, opt_f64, read_f64, read_text, run, which};
+use crate::util::{
+    bounded_text, kill_process_group, list_dir, opt_f64, read_bounded_line, read_f64, read_text,
+    run, system_command, which, EXTERNAL_TEXT_LIMIT, STREAM_LINE_LIMIT,
+};
 use serde_json::{json, Value};
-use std::io::{BufRead, BufReader};
-use std::process::{Child, Command, Stdio};
+use std::io::BufReader;
+use std::process::{Child, Stdio};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -40,12 +43,16 @@ impl GpuSampler {
 
     fn detect(&mut self) {
         for card in list_dir("/sys/class/drm") {
-            let is_card = card.starts_with("card") && card[4..].bytes().all(|b| b.is_ascii_digit()) && card.len() > 4;
+            let is_card = card.starts_with("card")
+                && card[4..].bytes().all(|b| b.is_ascii_digit())
+                && card.len() > 4;
             if !is_card {
                 continue;
             }
             let device = format!("/sys/class/drm/{card}/device");
-            let vendor = read_text(format!("{device}/vendor")).unwrap_or_default().to_lowercase();
+            let vendor = read_text(format!("{device}/vendor"))
+                .unwrap_or_default()
+                .to_lowercase();
             match vendor.as_str() {
                 "0x1002" => {
                     self.kind = Some(Kind::Amd);
@@ -74,13 +81,16 @@ impl GpuSampler {
             if let Some(hw) = list_dir(format!("{card}/hwmon")).into_iter().next() {
                 self.hwmon = Some(format!("{card}/hwmon/{hw}"));
             }
-            self.name = Self::pci_name(&card);
+            self.name = bounded_text(&Self::pci_name(&card), EXTERNAL_TEXT_LIMIT);
         }
     }
 
     fn pci_name(device: &str) -> String {
         let slot = match std::fs::canonicalize(device) {
-            Ok(p) => p.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default(),
+            Ok(p) => p
+                .file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_default(),
             Err(_) => return String::new(),
         };
         if !which("lspci") {
@@ -101,17 +111,24 @@ impl GpuSampler {
                 let name = quoted[2];
                 if let (Some(open), Some(close)) = (name.rfind('['), name.rfind(']')) {
                     if close > open {
-                        return name[open + 1..close].to_string();
+                        return bounded_text(&name[open + 1..close], EXTERNAL_TEXT_LIMIT);
                     }
                 }
-                return name.to_string();
+                return bounded_text(name, EXTERNAL_TEXT_LIMIT);
             }
         }
         String::new()
     }
 
     fn start_nvidia(&mut self) {
-        let child = Command::new("nvidia-smi")
+        let mut command = match system_command("nvidia-smi") {
+            Some(command) => command,
+            None => {
+                self.kind = None;
+                return;
+            }
+        };
+        let child = command
             .arg(format!("--query-gpu={NVIDIA_QUERY}"))
             .arg("--format=csv,noheader,nounits")
             .arg("-l")
@@ -130,14 +147,19 @@ impl GpuSampler {
         let stdout = match child.stdout.take() {
             Some(s) => s,
             None => {
+                kill_process_group(child.id());
+                let _ = child.wait();
                 self.kind = None;
                 return;
             }
         };
         let latest = Arc::clone(&self.latest);
         std::thread::spawn(move || {
-            let reader = BufReader::new(stdout);
-            for line in reader.lines().map_while(Result::ok) {
+            let mut reader = BufReader::new(stdout);
+            while let Ok(Some(line)) = read_bounded_line(&mut reader, STREAM_LINE_LIMIT) {
+                if line.is_empty() {
+                    continue;
+                }
                 let parts: Vec<&str> = line.split(',').map(|p| p.trim()).collect();
                 if parts.len() < 9 {
                     continue;
@@ -146,7 +168,7 @@ impl GpuSampler {
                 let mem_used = num(parts[2]).map(|v| v * 1024.0 * 1024.0);
                 let mem_total = num(parts[3]).map(|v| v * 1024.0 * 1024.0);
                 let snapshot = json!({
-                    "name": parts[0],
+                    "name": bounded_text(parts[0], EXTERNAL_TEXT_LIMIT),
                     "vendor": "nvidia",
                     "util": opt_f64(num(parts[1])),
                     "memUsed": opt_f64(mem_used),
@@ -171,7 +193,9 @@ impl GpuSampler {
         for entry in list_dir(hwmon) {
             if entry.starts_with(prefix) && entry.ends_with("_input") {
                 let key = &entry[..entry.len() - 6];
-                let label = read_text(format!("{hwmon}/{key}_label")).unwrap_or_default().to_lowercase();
+                let label = read_text(format!("{hwmon}/{key}_label"))
+                    .unwrap_or_default()
+                    .to_lowercase();
                 let preferred = labels.contains(&label.as_str());
                 if preferred || chosen.is_none() {
                     chosen = Some(entry.clone());
@@ -210,8 +234,12 @@ impl GpuSampler {
                 let util = read_f64(format!("{card}/gpu_busy_percent"));
                 let mem_used = read_f64(format!("{card}/mem_info_vram_used"));
                 let mem_total = read_f64(format!("{card}/mem_info_vram_total"));
-                let temp = self.hwmon_value("temp", &["edge", "junction"]).map(|t| t / 1000.0);
-                let power = self.hwmon_value("power", &["ppt", "power"]).map(|p| p / 1_000_000.0);
+                let temp = self
+                    .hwmon_value("temp", &["edge", "junction"])
+                    .map(|t| t / 1000.0);
+                let power = self
+                    .hwmon_value("power", &["ppt", "power"])
+                    .map(|p| p / 1_000_000.0);
                 let mhz = self
                     .hwmon_value("freq", &["sclk"])
                     .map(|f| f / 1_000_000.0)
@@ -238,7 +266,7 @@ impl GpuSampler {
 
     pub fn stop(&mut self) {
         if let Some(mut child) = self.child.take() {
-            let _ = child.kill();
+            kill_process_group(child.id());
             let _ = child.wait();
         }
     }

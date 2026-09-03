@@ -53,8 +53,10 @@ which `omarchy plugin disable` removes.
 The plugin runs one small sampler process that reads procfs and sysfs. Two
 implementations ship with the same JSON protocol:
 
-- `bin/omastats-sampler` — a Rust binary, x86-64, about 3 MB resident and 0.2% CPU.
-  Built from `sampler/`; run `make` to rebuild it for your machine.
+- `bin/omastats-sampler` — a Rust binary, x86-64, about 3 MB resident and 0.3% CPU.
+  Built from `sampler/`; run `make` to rebuild it for your machine. Its checksum,
+  byte-for-byte reproducible build, and signed GitHub attestation are documented
+  in [BINARY_PROVENANCE.md](BINARY_PROVENANCE.md).
 - `sampler.py` — a Python 3 fallback used whenever that binary is missing or
   cannot run here (another architecture, for instance). No third-party modules.
 
@@ -65,10 +67,13 @@ AMD and Intel come from sysfs), `ip` and `iw` (addresses, Wi-Fi signal),
 `wl-copy` (copy an address), `xdg-open` (open a volume in your file manager).
 
 Nothing runs as root, and no data leaves the machine except the optional
-public-IP lookup, which you can switch off in Settings.
+public-IP lookup, which you can switch off in Settings. That lookup tries
+`api.ipify.org`, `icanhazip.com`, then `ifconfig.me` over HTTPS and stops after
+the first valid IP-address response.
 
-`make` builds the binary into `bin/`; `make install` syncs the plugin into the
-Omarchy plugin directory.
+`make` builds the binary and checksum into `bin/`; `make verify-binary` performs
+two clean builds and compares them with the bundled artifact. `make install`
+syncs the plugin into the Omarchy plugin directory.
 
 ## Configuring
 

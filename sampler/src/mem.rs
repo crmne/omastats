@@ -6,7 +6,11 @@ pub fn sample_memory() -> Value {
     let mut info: HashMap<String, u64> = HashMap::new();
     for line in read_text("/proc/meminfo").unwrap_or_default().lines() {
         if let Some((key, rest)) = line.split_once(':') {
-            if let Some(v) = rest.split_whitespace().next().and_then(|v| v.parse::<u64>().ok()) {
+            if let Some(v) = rest
+                .split_whitespace()
+                .next()
+                .and_then(|v| v.parse::<u64>().ok())
+            {
                 info.insert(key.to_string(), v * 1024);
             }
         }
@@ -20,7 +24,10 @@ pub fn sample_memory() -> Value {
     let shmem = get("Shmem");
     let swap_total = get("SwapTotal");
     let swap_used = swap_total.saturating_sub(get("SwapFree"));
-    let apps = total.saturating_sub(free).saturating_sub(buffers).saturating_sub(cached);
+    let apps = total
+        .saturating_sub(free)
+        .saturating_sub(buffers)
+        .saturating_sub(cached);
 
     let mut zram_orig: u64 = 0;
     let mut zram_compr: u64 = 0;
@@ -40,7 +47,10 @@ pub fn sample_memory() -> Value {
 
     let mut pressure_some = 0.0;
     let mut pressure_full = 0.0;
-    for line in read_text("/proc/pressure/memory").unwrap_or_default().lines() {
+    for line in read_text("/proc/pressure/memory")
+        .unwrap_or_default()
+        .lines()
+    {
         let mut parts = line.split_whitespace();
         let kind = parts.next().unwrap_or("");
         let avg10 = parts

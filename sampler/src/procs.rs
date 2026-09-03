@@ -1,4 +1,4 @@
-use crate::util::{rate, read_text, round1, run};
+use crate::util::{bounded_text, rate, read_text, round1, run, EXTERNAL_TEXT_LIMIT};
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
 use std::fs;
@@ -8,6 +8,10 @@ use std::time::{Duration, Instant};
 const PROC_LIMIT: usize = 6;
 const FULL_LIMIT: usize = 400;
 const CONNECTION_LIMIT: usize = 12;
+const PROCESS_SCAN_LIMIT: usize = 16_384;
+const FD_SCAN_LIMIT: usize = 4096;
+const PROC_FILE_LIMIT: u64 = 64 * 1024;
+const SOCKET_SCAN_LIMIT: usize = 16_384;
 
 #[derive(Clone, Copy)]
 struct Prev {
@@ -46,11 +50,13 @@ pub fn display_name(pid: u32, comm: &str) -> String {
     if let Some(cmdline) = read_text(format!("/proc/{pid}/cmdline")) {
         let first = cmdline.split('\0').next().unwrap_or("");
         let base = first.rsplit('/').next().unwrap_or("");
-        if !base.is_empty() && (base.starts_with(&comm[..8.min(comm.len())]) || base.len() > comm.len()) {
-            return base.to_string();
+        if !base.is_empty()
+            && (base.starts_with(&comm[..8.min(comm.len())]) || base.len() > comm.len())
+        {
+            return bounded_text(base, EXTERNAL_TEXT_LIMIT);
         }
     }
-    comm.to_string()
+    bounded_text(comm, EXTERNAL_TEXT_LIMIT)
 }
 
 impl ProcessSampler {
@@ -59,7 +65,9 @@ impl ProcessSampler {
         let page_size = unsafe { libc::sysconf(libc::_SC_PAGESIZE) } as u64;
         Self {
             prev: HashMap::new(),
-            threads: std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1) as f64,
+            threads: std::thread::available_parallelism()
+                .map(|n| n.get())
+                .unwrap_or(1) as f64,
             clk_tck: if clk_tck > 0.0 { clk_tck } else { 100.0 },
             page_size: if page_size > 0 { page_size } else { 4096 },
             buffer: Vec::with_capacity(4096),
@@ -76,8 +84,13 @@ impl ProcessSampler {
 
     fn read_small(&mut self, path: &str) -> Option<&[u8]> {
         self.buffer.clear();
-        let mut file = fs::File::open(path).ok()?;
-        file.read_to_end(&mut self.buffer).ok()?;
+        let file = fs::File::open(path).ok()?;
+        file.take(PROC_FILE_LIMIT + 1)
+            .read_to_end(&mut self.buffer)
+            .ok()?;
+        if self.buffer.len() as u64 > PROC_FILE_LIMIT {
+            return None;
+        }
         Some(&self.buffer)
     }
 
@@ -89,13 +102,18 @@ impl ProcessSampler {
             Ok(e) => e,
             Err(_) => return json!({ "cpu": [], "mem": [], "io": [] }),
         };
-        for entry in entries.filter_map(|e| e.ok()) {
+        let mut scanned = 0usize;
+        for entry in entries.filter_map(Result::ok) {
             let file_name = entry.file_name();
             let name = file_name.to_string_lossy();
             let pid: u32 = match name.parse() {
                 Ok(p) => p,
                 Err(_) => continue,
             };
+            scanned += 1;
+            if scanned > PROCESS_SCAN_LIMIT {
+                break;
+            }
             let stat = match self.read_small(&format!("/proc/{pid}/stat")) {
                 Some(s) => String::from_utf8_lossy(s).to_string(),
                 None => continue,
@@ -132,14 +150,26 @@ impl ProcessSampler {
                     }
                 }
             }
-            current.insert(pid, Prev { ticks, read_bytes, write_bytes });
+            current.insert(
+                pid,
+                Prev {
+                    ticks,
+                    read_bytes,
+                    write_bytes,
+                },
+            );
 
             let prev = self.prev.get(&pid).copied();
             let (cpu, io_read, io_write) = match prev {
                 Some(p) if elapsed > 0.0 => (
-                    ticks.saturating_sub(p.ticks) as f64 / self.clk_tck / elapsed * 100.0 / self.threads,
+                    ticks.saturating_sub(p.ticks) as f64 / self.clk_tck / elapsed * 100.0
+                        / self.threads,
                     rate(Some(read_bytes as f64), Some(p.read_bytes as f64), elapsed),
-                    rate(Some(write_bytes as f64), Some(p.write_bytes as f64), elapsed),
+                    rate(
+                        Some(write_bytes as f64),
+                        Some(p.write_bytes as f64),
+                        elapsed,
+                    ),
                 ),
                 _ => (0.0, 0.0, 0.0),
             };
@@ -176,12 +206,34 @@ impl ProcessSampler {
             })
         };
 
-        list.sort_by(|a, b| b.cpu.partial_cmp(&a.cpu).unwrap_or(std::cmp::Ordering::Equal));
-        let all: Option<Vec<Value>> = if full { Some(list.iter().take(FULL_LIMIT).map(|g| to_json(g)).collect()) } else { None };
-        let cpu: Vec<Value> = list.iter().take(PROC_LIMIT).take_while(|g| g.cpu > 0.0).map(|g| to_json(g)).collect();
-        list.sort_by(|a, b| b.mem.cmp(&a.mem));
-        let mem: Vec<Value> = list.iter().take(PROC_LIMIT).take_while(|g| g.mem > 0).map(|g| to_json(g)).collect();
-        list.sort_by(|a, b| (b.read + b.write).partial_cmp(&(a.read + a.write)).unwrap_or(std::cmp::Ordering::Equal));
+        list.sort_by(|a, b| {
+            b.cpu
+                .partial_cmp(&a.cpu)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        let all: Option<Vec<Value>> = if full {
+            Some(list.iter().take(FULL_LIMIT).map(|g| to_json(g)).collect())
+        } else {
+            None
+        };
+        let cpu: Vec<Value> = list
+            .iter()
+            .take(PROC_LIMIT)
+            .take_while(|g| g.cpu > 0.0)
+            .map(|g| to_json(g))
+            .collect();
+        list.sort_by_key(|group| std::cmp::Reverse(group.mem));
+        let mem: Vec<Value> = list
+            .iter()
+            .take(PROC_LIMIT)
+            .take_while(|g| g.mem > 0)
+            .map(|g| to_json(g))
+            .collect();
+        list.sort_by(|a, b| {
+            (b.read + b.write)
+                .partial_cmp(&(a.read + a.write))
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         let io: Vec<Value> = list
             .iter()
             .take(PROC_LIMIT)
@@ -227,6 +279,11 @@ impl ProcessSampler {
                 continue;
             }
             if let Some((ino, sock)) = current.take() {
+                if sockets.len() >= SOCKET_SCAN_LIMIT {
+                    self.sockets_prev.clear();
+                    self.sockets_time = None;
+                    return json!([]);
+                }
                 sockets.insert(ino, sock);
             }
             let mut ino = String::new();
@@ -239,10 +296,23 @@ impl ProcessSampler {
                 }
             }
             if !ino.is_empty() {
-                current = Some((ino, Sock { sent: 0, recv: 0, cgroup, established: line.starts_with("ESTAB") }));
+                current = Some((
+                    ino,
+                    Sock {
+                        sent: 0,
+                        recv: 0,
+                        cgroup,
+                        established: line.starts_with("ESTAB"),
+                    },
+                ));
             }
         }
         if let Some((ino, sock)) = current.take() {
+            if sockets.len() >= SOCKET_SCAN_LIMIT {
+                self.sockets_prev.clear();
+                self.sockets_time = None;
+                return json!([]);
+            }
             sockets.insert(ino, sock);
         }
         if sockets.is_empty() {
@@ -254,22 +324,30 @@ impl ProcessSampler {
         // Socket inode -> owning process, for the processes we may inspect.
         let mut owner: HashMap<String, (u32, String)> = HashMap::new();
         if let Ok(entries) = fs::read_dir("/proc") {
-            for entry in entries.filter_map(|e| e.ok()) {
+            let mut scanned = 0usize;
+            for entry in entries.filter_map(Result::ok) {
                 let pid: u32 = match entry.file_name().to_string_lossy().parse() {
                     Ok(p) => p,
                     Err(_) => continue,
                 };
+                scanned += 1;
+                if scanned > PROCESS_SCAN_LIMIT {
+                    break;
+                }
                 let fds = match fs::read_dir(format!("/proc/{pid}/fd")) {
                     Ok(f) => f,
                     Err(_) => continue,
                 };
                 let mut name: Option<String> = None;
-                for fd in fds.filter_map(|f| f.ok()) {
+                for fd in fds.filter_map(Result::ok).take(FD_SCAN_LIMIT) {
                     let target = match fs::read_link(fd.path()) {
                         Ok(t) => t.to_string_lossy().to_string(),
                         Err(_) => continue,
                     };
-                    let inode = match target.strip_prefix("socket:[").and_then(|s| s.strip_suffix(']')) {
+                    let inode = match target
+                        .strip_prefix("socket:[")
+                        .and_then(|s| s.strip_suffix(']'))
+                    {
                         Some(i) if sockets.contains_key(i) => i.to_string(),
                         _ => continue,
                     };
@@ -277,9 +355,12 @@ impl ProcessSampler {
                         name = Some(match self.names.get(&pid) {
                             Some(n) => n.clone(),
                             None => {
-                                let stat = read_text(format!("/proc/{pid}/stat")).unwrap_or_default();
+                                let stat =
+                                    read_text(format!("/proc/{pid}/stat")).unwrap_or_default();
                                 match (stat.find('('), stat.rfind(')')) {
-                                    (Some(o), Some(c)) if c > o => display_name(pid, &stat[o + 1..c]),
+                                    (Some(o), Some(c)) if c > o => {
+                                        display_name(pid, &stat[o + 1..c])
+                                    }
                                     _ => format!("pid {pid}"),
                                 }
                             }
@@ -291,7 +372,10 @@ impl ProcessSampler {
         }
 
         let now = Instant::now();
-        let elapsed = self.sockets_time.map(|t| now.duration_since(t).as_secs_f64()).unwrap_or(0.0);
+        let elapsed = self
+            .sockets_time
+            .map(|t| now.duration_since(t).as_secs_f64())
+            .unwrap_or(0.0);
         // A long gap means inode numbers may have been recycled; start over.
         let usable = elapsed > 0.0 && elapsed < 5.0;
 
@@ -309,7 +393,14 @@ impl ProcessSampler {
                 Some((p, n)) => (*p, n.clone()),
                 None => (0, cgroup_label(&sock.cgroup)),
             };
-            let group = groups.entry(name.clone()).or_insert(Usage { name, pid, pids: HashSet::new(), connections: 0, rx: 0.0, tx: 0.0 });
+            let group = groups.entry(name.clone()).or_insert(Usage {
+                name,
+                pid,
+                pids: HashSet::new(),
+                connections: 0,
+                rx: 0.0,
+                tx: 0.0,
+            });
             group.pids.insert(pid);
             if sock.established {
                 group.connections += 1;
@@ -321,10 +412,16 @@ impl ProcessSampler {
                 }
             }
         }
-        self.sockets_prev = sockets.iter().map(|(k, s)| (k.clone(), (s.sent, s.recv))).collect();
+        self.sockets_prev = sockets
+            .iter()
+            .map(|(k, s)| (k.clone(), (s.sent, s.recv)))
+            .collect();
         self.sockets_time = Some(now);
 
-        let mut list: Vec<&Usage> = groups.values().filter(|g| g.connections > 0 || g.rx + g.tx > 0.0).collect();
+        let mut list: Vec<&Usage> = groups
+            .values()
+            .filter(|g| g.connections > 0 || g.rx + g.tx > 0.0)
+            .collect();
         list.sort_by(|a, b| {
             (b.rx + b.tx)
                 .partial_cmp(&(a.rx + a.tx))
@@ -349,7 +446,11 @@ impl ProcessSampler {
 /// Human label for a socket whose owner we cannot inspect, from its cgroup:
 /// app-<launcher>-<name>-<id>.scope -> name, <name>.service -> name.
 fn cgroup_label(cgroup: &str) -> String {
-    let last = cgroup.rsplit('/').next().unwrap_or("").replace("\\x2d", "-");
+    let last = cgroup
+        .rsplit('/')
+        .next()
+        .unwrap_or("")
+        .replace("\\x2d", "-");
     if last.is_empty() {
         return "other".to_string();
     }
@@ -361,11 +462,15 @@ fn cgroup_label(cgroup: &str) -> String {
     if let Some(rest) = stem.strip_prefix("app-") {
         let parts: Vec<&str> = rest.split('-').collect();
         if parts.len() >= 3 {
-            return parts[1..parts.len() - 1].join("-");
+            return bounded_text(&parts[1..parts.len() - 1].join("-"), EXTERNAL_TEXT_LIMIT);
         }
         if parts.len() == 2 {
-            return parts[1].to_string();
+            return bounded_text(parts[1], EXTERNAL_TEXT_LIMIT);
         }
     }
-    if stem.is_empty() { "other".to_string() } else { stem.to_string() }
+    if stem.is_empty() {
+        "other".to_string()
+    } else {
+        bounded_text(stem, EXTERNAL_TEXT_LIMIT)
+    }
 }

@@ -1,13 +1,19 @@
-use crate::util::{hwmon_dirs, is_whole_disk, list_dir, rate, read_i64, read_text, round1};
+use crate::util::{
+    bounded_text, hwmon_dirs, is_whole_disk, list_dir, rate, read_i64, read_text, round1,
+    EXTERNAL_TEXT_LIMIT,
+};
 use serde_json::{json, Map, Value};
 use std::collections::HashMap;
 use std::ffi::CString;
 use std::path::Path;
 
 const REAL_FS: [&str; 24] = [
-    "ext2", "ext3", "ext4", "xfs", "btrfs", "f2fs", "vfat", "exfat", "ntfs", "ntfs3", "fuseblk", "zfs", "jfs",
-    "reiserfs", "nfs", "nfs4", "cifs", "smb3", "apfs", "hfsplus", "bcachefs", "udf", "iso9660", "msdos",
+    "ext2", "ext3", "ext4", "xfs", "btrfs", "f2fs", "vfat", "exfat", "ntfs", "ntfs3", "fuseblk",
+    "zfs", "jfs", "reiserfs", "nfs", "nfs4", "cifs", "smb3", "apfs", "hfsplus", "bcachefs", "udf",
+    "iso9660", "msdos",
 ];
+const VOLUME_LIMIT: usize = 256;
+const PATH_TEXT_LIMIT: usize = 4096;
 
 #[derive(Clone)]
 struct Volume {
@@ -66,7 +72,9 @@ fn parent_disk(device: &str) -> String {
     }
     // Strip a partition suffix: nvme0n1p2 -> nvme0n1, mmcblk0p1 -> mmcblk0, sda1 -> sda.
     if let Some(pos) = name.rfind('p') {
-        if (name.starts_with("nvme") || name.starts_with("mmcblk")) && name[pos + 1..].bytes().all(|b| b.is_ascii_digit()) {
+        if (name.starts_with("nvme") || name.starts_with("mmcblk"))
+            && name[pos + 1..].bytes().all(|b| b.is_ascii_digit())
+        {
             let candidate = &name[..pos];
             if Path::new(&format!("/sys/block/{candidate}")).is_dir() {
                 return candidate.to_string();
@@ -121,14 +129,18 @@ impl DiskSampler {
             if block.is_none() {
                 // nvme hwmon lives on the controller; namespaces are named after it.
                 if let Ok(real) = std::fs::canonicalize(&device) {
-                    let ctrl = real.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+                    let ctrl = real
+                        .file_name()
+                        .map(|n| n.to_string_lossy().to_string())
+                        .unwrap_or_default();
                     if !ctrl.is_empty() {
                         block = blocks.iter().find(|b| b.starts_with(&ctrl)).cloned();
                     }
                 }
             }
             if let Some(block) = block {
-                self.drive_temps.insert(block, format!("{base}/temp1_input"));
+                self.drive_temps
+                    .insert(block, format!("{base}/temp1_input"));
             }
         }
     }
@@ -136,6 +148,9 @@ impl DiskSampler {
     fn scan_volumes(&self) -> Vec<Volume> {
         let mut volumes: HashMap<String, Volume> = HashMap::new();
         for line in read_text("/proc/self/mounts").unwrap_or_default().lines() {
+            if volumes.len() >= VOLUME_LIMIT {
+                break;
+            }
             let parts: Vec<&str> = line.split_whitespace().collect();
             if parts.len() < 3 {
                 continue;
@@ -143,12 +158,23 @@ impl DiskSampler {
             let device = parts[0];
             let mount = parts[1].replace("\\040", " ");
             let fstype = parts[2];
-            if !REAL_FS.contains(&fstype) || !device.starts_with('/') {
+            if !REAL_FS.contains(&fstype)
+                || !device.starts_with('/')
+                || device.len() > PATH_TEXT_LIMIT
+                || mount.len() > PATH_TEXT_LIMIT
+            {
                 continue;
             }
-            if ["/proc", "/sys", "/dev", "/run/user", "/var/lib/docker", "/snap"]
-                .iter()
-                .any(|p| mount.starts_with(p))
+            if [
+                "/proc",
+                "/sys",
+                "/dev",
+                "/run/user",
+                "/var/lib/docker",
+                "/snap",
+            ]
+            .iter()
+            .any(|p| mount.starts_with(p))
             {
                 continue;
             }
@@ -165,19 +191,22 @@ impl DiskSampler {
                 }
             }
             let disk = parent_disk(device);
-            let model = read_text(format!("/sys/block/{disk}/device/model"))
-                .filter(|m| !m.is_empty())
-                .or_else(|| read_text(format!("/sys/block/{disk}/device/name")))
-                .unwrap_or_default()
-                .split_whitespace()
-                .collect::<Vec<_>>()
-                .join(" ");
+            let model = bounded_text(
+                &read_text(format!("/sys/block/{disk}/device/model"))
+                    .filter(|m| !m.is_empty())
+                    .or_else(|| read_text(format!("/sys/block/{disk}/device/name")))
+                    .unwrap_or_default()
+                    .split_whitespace()
+                    .collect::<Vec<_>>()
+                    .join(" "),
+                EXTERNAL_TEXT_LIMIT,
+            );
             volumes.insert(
                 device.to_string(),
                 Volume {
                     mount: mount.clone(),
                     device: device.to_string(),
-                    fstype: fstype.to_string(),
+                    fstype: bounded_text(fstype, 64),
                     size,
                     used,
                     avail,
@@ -227,7 +256,7 @@ impl DiskSampler {
             let temp = self
                 .drive_temps
                 .get(name)
-                .and_then(|p| read_i64(p))
+                .and_then(read_i64)
                 .filter(|t| *t > 0)
                 .map(|t| round1(t as f64 / 1000.0));
             temps.insert(name.clone(), temp);

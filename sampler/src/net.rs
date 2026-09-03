@@ -1,4 +1,4 @@
-use crate::util::{rate, read_i64, read_text, run, which};
+use crate::util::{bounded_text, rate, read_i64, read_text, run, which, EXTERNAL_TEXT_LIMIT};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::path::Path;
@@ -35,7 +35,11 @@ pub struct NetworkSampler {
 }
 
 fn default_iface() -> String {
-    for line in read_text("/proc/net/route").unwrap_or_default().lines().skip(1) {
+    for line in read_text("/proc/net/route")
+        .unwrap_or_default()
+        .lines()
+        .skip(1)
+    {
         let parts: Vec<&str> = line.split_whitespace().collect();
         if parts.len() >= 4 && parts[1] == "00000000" {
             if let Ok(flags) = i64::from_str_radix(parts[3], 16) {
@@ -45,9 +49,16 @@ fn default_iface() -> String {
             }
         }
     }
-    for line in read_text("/proc/net/ipv6_route").unwrap_or_default().lines() {
+    for line in read_text("/proc/net/ipv6_route")
+        .unwrap_or_default()
+        .lines()
+    {
         let parts: Vec<&str> = line.split_whitespace().collect();
-        if parts.len() >= 10 && parts[0].bytes().all(|b| b == b'0') && parts[0].len() == 32 && parts[1] == "00" {
+        if parts.len() >= 10
+            && parts[0].bytes().all(|b| b == b'0')
+            && parts[0].len() == 32
+            && parts[1] == "00"
+        {
             return parts[9].to_string();
         }
     }
@@ -62,7 +73,11 @@ impl NetworkSampler {
             addr_stamp: 0.0,
             wifi: HashMap::new(),
             wifi_stamp: 0.0,
-            public: Arc::new(Mutex::new(PublicIp { value: String::new(), stamp: 0.0, inflight: false })),
+            public: Arc::new(Mutex::new(PublicIp {
+                value: String::new(),
+                stamp: 0.0,
+                inflight: false,
+            })),
         }
     }
 
@@ -74,16 +89,21 @@ impl NetworkSampler {
         let raw = run("ip", &["-j", "addr"], Duration::from_secs(2));
         let parsed: Value = serde_json::from_str(&raw).unwrap_or(Value::Array(Vec::new()));
         for iface in parsed.as_array().cloned().unwrap_or_default() {
-            let name = iface["ifname"].as_str().unwrap_or("").to_string();
+            let name = bounded_text(iface["ifname"].as_str().unwrap_or(""), EXTERNAL_TEXT_LIMIT);
+            if name.is_empty() {
+                continue;
+            }
             let mut addrs = Addresses::default();
             for addr in iface["addr_info"].as_array().cloned().unwrap_or_default() {
                 if addr["scope"].as_str() != Some("global") {
                     continue;
                 }
-                let local = addr["local"].as_str().unwrap_or("").to_string();
+                let local = bounded_text(addr["local"].as_str().unwrap_or(""), 64);
                 match addr["family"].as_str() {
                     Some("inet") => addrs.ipv4.push(local),
-                    Some("inet6") if !addr["temporary"].as_bool().unwrap_or(false) => addrs.ipv6.push(local),
+                    Some("inet6") if !addr["temporary"].as_bool().unwrap_or(false) => {
+                        addrs.ipv6.push(local)
+                    }
                     _ => {}
                 }
             }
@@ -102,7 +122,7 @@ impl NetworkSampler {
             for line in out.lines() {
                 let line = line.trim();
                 if let Some(ssid) = line.strip_prefix("SSID:") {
-                    info.ssid = Some(ssid.trim().to_string());
+                    info.ssid = Some(bounded_text(ssid.trim(), 128));
                 } else if let Some(rest) = line.strip_prefix("signal:") {
                     info.dbm = rest.split_whitespace().next().and_then(|v| v.parse().ok());
                 } else if let Some(rest) = line.strip_prefix("freq:") {
@@ -130,12 +150,22 @@ impl NetworkSampler {
         std::thread::spawn(move || {
             let mut result = String::new();
             if which("curl") {
-                for url in ["https://api.ipify.org", "https://icanhazip.com", "https://ifconfig.me/ip"] {
-                    let out = run("curl", &["-s", "--max-time", "5", url], Duration::from_secs(7));
+                for url in [
+                    "https://api.ipify.org",
+                    "https://icanhazip.com",
+                    "https://ifconfig.me/ip",
+                ] {
+                    let out = run(
+                        "curl",
+                        &["-s", "--max-time", "5", url],
+                        Duration::from_secs(7),
+                    );
                     let candidate = out.trim();
                     if !candidate.is_empty()
                         && candidate.len() <= 64
-                        && candidate.bytes().all(|b| b.is_ascii_hexdigit() || b == b'.' || b == b':')
+                        && candidate
+                            .bytes()
+                            .all(|b| b.is_ascii_hexdigit() || b == b'.' || b == b':')
                     {
                         result = candidate.to_string();
                         break;
@@ -152,7 +182,11 @@ impl NetworkSampler {
 
     pub fn sample(&mut self, elapsed: f64, now: f64, detail: bool) -> Value {
         let mut current: HashMap<String, (u64, u64)> = HashMap::new();
-        for line in read_text("/proc/net/dev").unwrap_or_default().lines().skip(2) {
+        for line in read_text("/proc/net/dev")
+            .unwrap_or_default()
+            .lines()
+            .skip(2)
+        {
             let (name, rest) = match line.split_once(':') {
                 Some(v) => v,
                 None => continue,
@@ -197,11 +231,15 @@ impl NetworkSampler {
             let up = state == "up" || (state == "unknown" && *rx_total > 0);
             let is_default = *name == default;
             if !is_default
-                && ["veth", "docker", "br-", "virbr", "vmnet", "tap"].iter().any(|p| name.starts_with(p))
+                && ["veth", "docker", "br-", "virbr", "vmnet", "tap"]
+                    .iter()
+                    .any(|p| name.starts_with(p))
             {
                 continue;
             }
-            let speed = read_i64(format!("/sys/class/net/{name}/speed")).filter(|s| *s > 0).unwrap_or(0);
+            let speed = read_i64(format!("/sys/class/net/{name}/speed"))
+                .filter(|s| *s > 0)
+                .unwrap_or(0);
             let addrs = self.addresses.get(name).cloned().unwrap_or_default();
             let wifi = self.wifi.get(name).cloned().unwrap_or_default();
             let mut entry = json!({
@@ -248,7 +286,11 @@ impl NetworkSampler {
         indexed.sort_by(|a, b| a.1.cmp(b.1));
         let sorted: Vec<Value> = indexed.iter().map(|(i, _)| ifaces[*i].clone()).collect();
 
-        let public_ip = self.public.lock().map(|p| p.value.clone()).unwrap_or_default();
+        let public_ip = self
+            .public
+            .lock()
+            .map(|p| p.value.clone())
+            .unwrap_or_default();
         json!({
             "ifaces": sorted,
             "default": default,

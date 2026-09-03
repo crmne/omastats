@@ -27,7 +27,7 @@ mod sensors;
 mod util;
 
 use serde_json::{json, Value};
-use std::io::{BufRead, Write};
+use std::io::{BufReader, Write};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -41,7 +41,8 @@ struct Control {
 
 fn listen(control: Arc<Mutex<Control>>) {
     let stdin = std::io::stdin();
-    for line in stdin.lock().lines().map_while(Result::ok) {
+    let mut input = BufReader::new(stdin.lock());
+    while let Ok(Some(line)) = util::read_bounded_line(&mut input, util::CONTROL_LINE_LIMIT) {
         let parts: Vec<&str> = line.split_whitespace().collect();
         if parts.is_empty() {
             continue;
@@ -129,7 +130,11 @@ fn main() {
     if detail_flag > 0 {
         let _ = procs.sample(1.0, detail_flag >= 2);
     }
-    std::thread::sleep(Duration::from_secs_f64(if once { 0.5 } else { interval.min(1.0) }));
+    std::thread::sleep(Duration::from_secs_f64(if once {
+        0.5
+    } else {
+        interval.min(1.0)
+    }));
 
     let stdout = std::io::stdout();
     let mut out = stdout.lock();
@@ -151,7 +156,13 @@ fn main() {
             };
             let want = state.public_ip_requested;
             state.public_ip_requested = false;
-            (state.detail, state.focus.clone(), want, state.interval, state.stop)
+            (
+                state.detail,
+                state.focus.clone(),
+                want,
+                state.interval,
+                state.stop,
+            )
         };
         if stop {
             break;
@@ -164,12 +175,14 @@ fn main() {
             net.fetch_public_ip();
         }
 
-        let slow_due = last_slow.map_or(true, |t| tick_start.duration_since(t).as_secs_f64() >= 0.95);
+        let slow_due = last_slow.is_none_or(|t| tick_start.duration_since(t).as_secs_f64() >= 0.95);
         if slow_due {
             sensors_cache = sensors.sample(now);
             battery_cache = battery::sample_battery();
             if detail > 0 {
-                let since = last_procs.map_or(elapsed, |t| tick_start.duration_since(t).as_secs_f64().max(0.05));
+                let since = last_procs.map_or(elapsed, |t| {
+                    tick_start.duration_since(t).as_secs_f64().max(0.05)
+                });
                 procs_cache = procs.sample(since, detail >= 2);
                 last_procs = Some(tick_start);
             } else {
@@ -217,7 +230,9 @@ fn main() {
             break;
         }
         let spent = tick_start.elapsed().as_secs_f64();
-        std::thread::sleep(Duration::from_secs_f64((current_interval - spent).max(0.02)));
+        std::thread::sleep(Duration::from_secs_f64(
+            (current_interval - spent).max(0.02),
+        ));
     }
 
     gpu.stop();

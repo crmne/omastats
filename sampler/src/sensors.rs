@@ -1,8 +1,11 @@
-use crate::util::{hwmon_dirs, list_dir, read_i64, read_text, round1};
+use crate::util::{
+    bounded_text, hwmon_dirs, list_dir, read_i64, read_text, round1, EXTERNAL_TEXT_LIMIT,
+};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 
 const GPU_HWMON: [&str; 5] = ["amdgpu", "nouveau", "i915", "xe", "radeon"];
+const SENSOR_LIMIT: usize = 1024;
 
 #[derive(Clone)]
 struct Temp {
@@ -57,22 +60,36 @@ fn pretty_chip(name: &str) -> String {
             return value.to_string();
         }
     }
-    if name.starts_with("r8169") || name.starts_with("igc") || name.starts_with("e1000") || name.starts_with("ixgbe") {
+    if name.starts_with("r8169")
+        || name.starts_with("igc")
+        || name.starts_with("e1000")
+        || name.starts_with("ixgbe")
+    {
         return "Ethernet".to_string();
     }
-    if name.starts_with("mt79") || name.starts_with("iwl") || name.starts_with("ath") || name.starts_with("rtw") {
+    if name.starts_with("mt79")
+        || name.starts_with("iwl")
+        || name.starts_with("ath")
+        || name.starts_with("rtw")
+    {
         return "Wi-Fi".to_string();
     }
-    if name.starts_with("nct") || name.starts_with("it87") || name.starts_with("f71") || name.starts_with("w83") {
+    if name.starts_with("nct")
+        || name.starts_with("it87")
+        || name.starts_with("f71")
+        || name.starts_with("w83")
+    {
         return "Board".to_string();
     }
-    name.to_string()
+    bounded_text(name, EXTERNAL_TEXT_LIMIT)
 }
 
 /// Super-IO monitoring chips, which some boards expose through two drivers
 /// at once (an in-tree one and a vendor one).
 fn is_board_chip(name: &str) -> bool {
-    ["nct", "it87", "f71", "w83", "asus_ec", "nct6687d"].iter().any(|p| name.starts_with(p))
+    ["nct", "it87", "f71", "w83", "asus_ec", "nct6687d"]
+        .iter()
+        .any(|p| name.starts_with(p))
 }
 
 fn score(chip: &Chip) -> usize {
@@ -106,15 +123,23 @@ fn dedupe(chips: Vec<Chip>) -> Vec<Chip> {
 
 impl SensorSampler {
     pub fn new() -> Self {
-        Self { chips: Vec::new(), stamp: 0.0, gpu_temp_path: None }
+        Self {
+            chips: Vec::new(),
+            stamp: 0.0,
+            gpu_temp_path: None,
+        }
     }
 
     fn scan(&mut self) {
         let mut chips: Vec<Chip> = Vec::new();
+        let mut remaining = SENSOR_LIMIT;
         for hw in hwmon_dirs() {
+            if remaining == 0 {
+                break;
+            }
             let path = format!("/sys/class/hwmon/{hw}");
             let name = match read_text(format!("{path}/name")) {
-                Some(n) if !n.is_empty() => n,
+                Some(n) if !n.is_empty() => bounded_text(&n, EXTERNAL_TEXT_LIMIT),
                 _ => continue,
             };
             let mut temps = Vec::new();
@@ -127,18 +152,29 @@ impl SensorSampler {
                         .or_else(|| read_i64(format!("{path}/{key}_crit")))
                         .unwrap_or(0);
                     temps.push(Temp {
-                        label: read_text(format!("{path}/{key}_label")).unwrap_or_default(),
+                        label: bounded_text(
+                            &read_text(format!("{path}/{key}_label")).unwrap_or_default(),
+                            EXTERNAL_TEXT_LIMIT,
+                        ),
                         path: format!("{path}/{entry}"),
                         max,
                         key,
                     });
+                    remaining -= 1;
                 } else if entry.starts_with("fan") && entry.ends_with("_input") {
                     let key = entry[..entry.len() - 6].to_string();
                     fans.push(Fan {
-                        label: read_text(format!("{path}/{key}_label")).unwrap_or_default(),
+                        label: bounded_text(
+                            &read_text(format!("{path}/{key}_label")).unwrap_or_default(),
+                            EXTERNAL_TEXT_LIMIT,
+                        ),
                         path: format!("{path}/{entry}"),
                         key,
                     });
+                    remaining -= 1;
+                }
+                if remaining == 0 {
+                    break;
                 }
             }
             if temps.is_empty() && fans.is_empty() {
@@ -216,7 +252,7 @@ impl SensorSampler {
         let gpu_temp = self
             .gpu_temp_path
             .as_ref()
-            .and_then(|p| read_i64(p))
+            .and_then(read_i64)
             .filter(|v| *v > 0)
             .map(|v| round1(v as f64 / 1000.0));
         json!({ "temps": temps, "fans": fans, "gpuTemp": gpu_temp })

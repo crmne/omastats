@@ -1,5 +1,9 @@
-use crate::util::{list_dir, now_secs, read_i64, read_text, round2};
+use crate::util::{
+    bounded_text, list_dir, now_secs, read_i64, read_text, round2, EXTERNAL_TEXT_LIMIT,
+};
 use serde_json::{json, Value};
+
+const PERIPHERAL_LIMIT: usize = 256;
 
 pub fn sample_battery() -> Value {
     if std::env::var_os("ISTAT_FAKE_BATTERY").is_some() {
@@ -39,15 +43,24 @@ pub fn sample_battery() -> Value {
         }
         let scope = read_text(format!("{path}/scope")).unwrap_or_default();
         let capacity = read_i64(format!("{path}/capacity"));
-        let status = read_text(format!("{path}/status")).filter(|s| !s.is_empty()).unwrap_or_else(|| "Unknown".into());
-        let model = read_text(format!("{path}/model_name")).unwrap_or_default();
-        let has_energy = read_i64(format!("{path}/energy_full")).is_some() || read_i64(format!("{path}/charge_full")).is_some();
+        let status = bounded_text(
+            &read_text(format!("{path}/status"))
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| "Unknown".into()),
+            EXTERNAL_TEXT_LIMIT,
+        );
+        let model = bounded_text(
+            &read_text(format!("{path}/model_name")).unwrap_or_default(),
+            EXTERNAL_TEXT_LIMIT,
+        );
+        let has_energy = read_i64(format!("{path}/energy_full")).is_some()
+            || read_i64(format!("{path}/charge_full")).is_some();
         let is_device = scope == "Device"
             || entry.starts_with("hid")
             || entry.starts_with("wacom")
             || (!entry.starts_with("BAT") && !has_energy);
         if is_device {
-            if let Some(cap) = capacity {
+            if let Some(cap) = capacity.filter(|_| peripherals.len() < PERIPHERAL_LIMIT) {
                 peripherals.push(json!({
                     "name": if model.is_empty() { entry.clone() } else { model.clone() },
                     "percent": cap,
@@ -68,11 +81,14 @@ pub fn sample_battery() -> Value {
         if energy_now.is_none() {
             energy_now = read_i64(format!("{path}/charge_now")).map(|v| v as f64 * voltage);
             energy_full = read_i64(format!("{path}/charge_full")).map(|v| v as f64 * voltage);
-            energy_design = read_i64(format!("{path}/charge_full_design")).map(|v| v as f64 * voltage);
+            energy_design =
+                read_i64(format!("{path}/charge_full_design")).map(|v| v as f64 * voltage);
             power_now = read_i64(format!("{path}/current_now")).map(|v| (v as f64).abs() * voltage);
         }
         let health = match (energy_full, energy_design) {
-            (Some(full), Some(design)) if full > 0.0 && design > 0.0 => Some(((full / design * 100.0).min(100.0) * 10.0).round() / 10.0),
+            (Some(full), Some(design)) if full > 0.0 && design > 0.0 => {
+                Some(((full / design * 100.0).min(100.0) * 10.0).round() / 10.0)
+            }
             _ => None,
         };
         let power_w = power_now.unwrap_or(0.0) / 1_000_000.0;
@@ -108,7 +124,10 @@ pub fn sample_battery() -> Value {
             "health": health,
             "acOnline": ac_online,
             "model": model,
-            "technology": read_text(format!("{path}/technology")).unwrap_or_default(),
+            "technology": bounded_text(
+                &read_text(format!("{path}/technology")).unwrap_or_default(),
+                EXTERNAL_TEXT_LIMIT,
+            ),
         }));
     }
 

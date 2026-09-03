@@ -19,7 +19,8 @@ from __future__ import annotations
 import json
 import os
 import re
-import shutil
+import selectors
+import signal
 import subprocess
 import sys
 import threading
@@ -38,13 +39,50 @@ GPU_TEMP_HWMON = ("amdgpu", "nouveau", "i915", "xe", "radeon")
 PROC_LIMIT = 6
 FULL_LIMIT = 400
 CONNECTION_LIMIT = 12
+CONTROL_LINE_LIMIT = 4 * 1024
+EXTERNAL_TEXT_LIMIT = 512
+STREAM_LINE_LIMIT = 64 * 1024
+FILE_READ_LIMIT = 1024 * 1024
+COMMAND_OUTPUT_LIMIT = 1024 * 1024
+DIRECTORY_ENTRY_LIMIT = 4096
+PROCESS_SCAN_LIMIT = 16_384
+FD_SCAN_LIMIT = 4096
+SOCKET_SCAN_LIMIT = 16_384
+PROC_FILE_LIMIT = 64 * 1024
+TOOL_DIRS = ("/usr/bin", "/bin")
+
+
+def bounded_text(value: str, limit: int = EXTERNAL_TEXT_LIMIT) -> str:
+    """Return at most limit UTF-8 bytes without splitting a character."""
+    encoded = value.encode("utf-8", "replace")
+    if len(encoded) <= limit:
+        return value
+    return encoded[:limit].decode("utf-8", "ignore")
+
+
+def list_dir(path: str, limit: int = DIRECTORY_ENTRY_LIMIT) -> list[str]:
+    """Return sorted names, or nothing when a directory exceeds its bound."""
+    names: list[str] = []
+    try:
+        with os.scandir(path) as entries:
+            for entry in entries:
+                if len(names) >= limit:
+                    return []
+                names.append(entry.name)
+    except OSError:
+        return []
+    names.sort()
+    return names
 
 
 def read_text(path: str, default: str = "") -> str:
     try:
-        with open(path, "r", encoding="utf-8", errors="replace") as handle:
-            return handle.read().strip()
-    except OSError:
+        with open(path, "rb") as handle:
+            raw = handle.read(FILE_READ_LIMIT + 1)
+        if len(raw) > FILE_READ_LIMIT:
+            return default
+        return raw.decode("utf-8").strip()
+    except (OSError, UnicodeDecodeError):
         return default
 
 
@@ -71,14 +109,101 @@ def read_float(path: str, default: float | None = None) -> float | None:
         return default
 
 
-def run(cmd: list[str], timeout: float = 2.0) -> str:
+def command_path(program: str) -> str | None:
+    """Resolve optional helpers from protected system directories, not PATH."""
+    if not program or "/" in program:
+        return None
+    for directory in TOOL_DIRS:
+        candidate = os.path.join(directory, program)
+        if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+            return candidate
+    return None
+
+
+def kill_process_group(proc: subprocess.Popen) -> None:
     try:
-        completed = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=timeout, check=False
-        )
-    except (OSError, subprocess.SubprocessError):
+        os.killpg(proc.pid, signal.SIGKILL)
+    except (OSError, ProcessLookupError):
+        pass
+
+
+def run(cmd: list[str], timeout: float = 2.0) -> str:
+    """Run a fixed system helper with explicit time and output bounds."""
+    if not cmd:
         return ""
-    return completed.stdout
+    executable = command_path(cmd[0])
+    if executable is None:
+        return ""
+    try:
+        proc = subprocess.Popen(
+            [executable, *cmd[1:]],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+    except OSError:
+        return ""
+    assert proc.stdout is not None
+    output = bytearray()
+    selector = selectors.DefaultSelector()
+    selector.register(proc.stdout, selectors.EVENT_READ)
+    os.set_blocking(proc.stdout.fileno(), False)
+    deadline = time.monotonic() + timeout
+    eof = False
+    exited = False
+    try:
+        while not (eof and exited):
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                kill_process_group(proc)
+                proc.wait()
+                return ""
+            for key, _ in selector.select(min(0.05, remaining)):
+                try:
+                    chunk = os.read(key.fileobj.fileno(), 64 * 1024)
+                except BlockingIOError:
+                    continue
+                if not chunk:
+                    eof = True
+                    selector.unregister(key.fileobj)
+                    break
+                if len(output) + len(chunk) > COMMAND_OUTPUT_LIMIT:
+                    kill_process_group(proc)
+                    proc.wait()
+                    return ""
+                output.extend(chunk)
+            if not exited and proc.poll() is not None:
+                exited = True
+                # A descendant must not retain the captured pipe indefinitely.
+                kill_process_group(proc)
+        return output.decode("utf-8")
+    except (OSError, UnicodeDecodeError, subprocess.SubprocessError):
+        kill_process_group(proc)
+        proc.wait()
+        return ""
+    finally:
+        selector.close()
+        proc.stdout.close()
+
+
+def bounded_lines(stream, limit: int):
+    """Yield decoded lines while draining and ignoring oversized input."""
+    while True:
+        raw = stream.readline(limit + 2)
+        if not raw:
+            return
+        oversized = len(raw.rstrip(b"\r\n")) > limit
+        while raw and not raw.endswith(b"\n"):
+            raw = stream.readline(64 * 1024)
+            oversized = True
+        if oversized:
+            yield ""
+            continue
+        try:
+            yield raw.rstrip(b"\r\n").decode("utf-8")
+        except UnicodeDecodeError:
+            yield ""
 
 
 def rate(now: float | None, prev: float | None, elapsed: float) -> float:
@@ -110,11 +235,18 @@ class CpuSampler:
             part = part.strip()
             if not part:
                 continue
-            if "-" in part:
-                lo, hi = part.split("-", 1)
-                cpus.extend(range(int(lo), int(hi) + 1))
-            else:
-                cpus.append(int(part))
+            try:
+                if "-" in part:
+                    lo, hi = (int(value) for value in part.split("-", 1))
+                    if hi < lo or hi - lo > DIRECTORY_ENTRY_LIMIT:
+                        return []
+                    cpus.extend(range(lo, hi + 1))
+                else:
+                    cpus.append(int(part))
+            except ValueError:
+                continue
+            if len(cpus) > DIRECTORY_ENTRY_LIMIT:
+                return []
         return cpus
 
     def _static_info(self) -> dict:
@@ -134,7 +266,7 @@ class CpuSampler:
         efficiency = self._cpu_list(read_text("/sys/devices/cpu_atom/cpus"))
         max_khz = read_int("/sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_max_freq")
         model = re.sub(r"\s+", " ", model)
-        model = re.sub(r"\((R|TM)\)", "", model).replace("  ", " ").strip()
+        model = bounded_text(re.sub(r"\((R|TM)\)", "", model).replace("  ", " ").strip())
         return {
             "model": model,
             "cores": cores,
@@ -145,12 +277,12 @@ class CpuSampler:
 
     def _find_temp_source(self) -> str | None:
         found: dict[str, str] = {}
-        for hw in sorted(os.listdir("/sys/class/hwmon") if os.path.isdir("/sys/class/hwmon") else []):
+        for hw in list_dir("/sys/class/hwmon"):
             base = f"/sys/class/hwmon/{hw}"
             name = read_text(f"{base}/name")
             if not name:
                 continue
-            for entry in os.listdir(base):
+            for entry in list_dir(base):
                 if not (entry.startswith("temp") and entry.endswith("_input")):
                     continue
                 label = read_text(f"{base}/{entry[:-6]}_label").lower()
@@ -169,7 +301,7 @@ class CpuSampler:
         if "labelled" in found:
             return found["labelled"]
         # Thermal zones as a last resort (ARM boards, laptops without hwmon labels).
-        for zone in sorted(os.listdir("/sys/class/thermal") if os.path.isdir("/sys/class/thermal") else []):
+        for zone in list_dir("/sys/class/thermal"):
             if not zone.startswith("thermal_zone"):
                 continue
             ztype = read_text(f"/sys/class/thermal/{zone}/type").lower()
@@ -274,7 +406,7 @@ class GpuSampler:
     def _detect(self) -> None:
         drm = "/sys/class/drm"
         if os.path.isdir(drm):
-            for card in sorted(os.listdir(drm)):
+            for card in list_dir(drm):
                 if not re.fullmatch(r"card\d+", card):
                     continue
                 device = f"{drm}/{card}/device"
@@ -286,12 +418,12 @@ class GpuSampler:
                     self.kind, self.card = "intel", device
                 elif vendor == "0x10de" and self.kind is None:
                     self.kind, self.card = "nvidia", device
-        if self.kind == "nvidia" and shutil.which("nvidia-smi"):
+        if self.kind == "nvidia" and command_path("nvidia-smi"):
             self._start_nvidia()
         elif self.kind == "nvidia":
             self.kind = None
         if self.card:
-            for hw in sorted(os.listdir(f"{self.card}/hwmon")) if os.path.isdir(f"{self.card}/hwmon") else []:
+            for hw in list_dir(f"{self.card}/hwmon"):
                 self.hwmon = f"{self.card}/hwmon/{hw}"
                 break
             self.name = self._pci_name(self.card)
@@ -302,21 +434,27 @@ class GpuSampler:
             slot = os.path.basename(os.path.realpath(device))
         except OSError:
             return ""
-        if not shutil.which("lspci"):
+        if not command_path("lspci"):
             return ""
         for line in run(["lspci", "-mm", "-s", slot]).splitlines():
             fields = re.findall(r'"([^"]*)"', line)
             if len(fields) >= 3:
                 name = fields[2]
                 bracket = re.findall(r"\[([^\]]+)\]", name)
-                return bracket[-1] if bracket else name
+                return bounded_text(bracket[-1] if bracket else name)
         return ""
 
     def _start_nvidia(self) -> None:
         try:
+            executable = command_path("nvidia-smi")
+            if executable is None:
+                raise FileNotFoundError("nvidia-smi")
             self.proc = subprocess.Popen(
-                ["nvidia-smi", f"--query-gpu={self.QUERY}", "--format=csv,noheader,nounits", "-l", "1"],
-                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True,
+                [executable, f"--query-gpu={self.QUERY}", "--format=csv,noheader,nounits", "-l", "1"],
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True,
             )
         except OSError:
             self.proc = None
@@ -326,7 +464,7 @@ class GpuSampler:
 
     def _read_nvidia(self) -> None:
         assert self.proc and self.proc.stdout
-        for line in self.proc.stdout:
+        for line in bounded_lines(self.proc.stdout, STREAM_LINE_LIMIT):
             parts = [p.strip() for p in line.strip().split(",")]
             if len(parts) < 9:
                 continue
@@ -340,7 +478,7 @@ class GpuSampler:
             mem_used = num(parts[2])
             mem_total = num(parts[3])
             snapshot = {
-                "name": parts[0],
+                "name": bounded_text(parts[0]),
                 "vendor": "nvidia",
                 "util": num(parts[1]),
                 "memUsed": mem_used * 1024 * 1024 if mem_used is not None else None,
@@ -358,7 +496,7 @@ class GpuSampler:
         if not self.hwmon:
             return None
         chosen = None
-        for entry in os.listdir(self.hwmon):
+        for entry in list_dir(self.hwmon):
             if entry.startswith(prefix) and entry.endswith("_input"):
                 label = read_text(f"{self.hwmon}/{entry[:-6]}_label").lower()
                 if label in labels or chosen is None:
@@ -407,7 +545,8 @@ class GpuSampler:
 
     def stop(self) -> None:
         if self.proc and self.proc.poll() is None:
-            self.proc.terminate()
+            kill_process_group(self.proc)
+            self.proc.wait()
 
 
 # -------------------------------------------------------------------------- Memory
@@ -431,7 +570,7 @@ def sample_memory() -> dict:
     apps = max(0, total - free - buffers - cached)
     zram_orig = 0
     zram_compr = 0
-    for dev in sorted(os.listdir("/sys/block")) if os.path.isdir("/sys/block") else []:
+    for dev in list_dir("/sys/block"):
         if dev.startswith("zram"):
             fields = read_text(f"/sys/block/{dev}/mm_stat").split()
             if len(fields) >= 3:
@@ -478,23 +617,23 @@ class DiskSampler:
         base = "/sys/class/hwmon"
         if not os.path.isdir(base):
             return
-        for hw in os.listdir(base):
+        for hw in list_dir(base):
             name = read_text(f"{base}/{hw}/name")
             if name not in ("nvme", "drivetemp"):
                 continue
             device = f"{base}/{hw}/device"
             block = None
             try:
-                for entry in os.listdir(device):
+                for entry in list_dir(device):
                     if re.fullmatch(r"(nvme\d+n\d+|sd[a-z]+)", entry):
                         block = entry
                         break
                 if block is None and os.path.isdir(f"{device}/block"):
-                    block = next(iter(os.listdir(f"{device}/block")), None)
+                    block = next(iter(list_dir(f"{device}/block")), None)
                 if block is None and os.path.isdir(f"{device}/nvme"):
                     # nvme hwmon sits on the controller; its namespaces live one level deeper.
                     ctrl = os.path.basename(os.path.realpath(device))
-                    for entry in os.listdir("/sys/block"):
+                    for entry in list_dir("/sys/block"):
                         if entry.startswith(ctrl):
                             block = entry
                             break
@@ -502,7 +641,7 @@ class DiskSampler:
                 continue
             if block is None:
                 ctrl = os.path.basename(os.path.realpath(device))
-                for entry in os.listdir("/sys/block") if os.path.isdir("/sys/block") else []:
+                for entry in list_dir("/sys/block"):
                     if entry.startswith(ctrl):
                         block = entry
                         break
@@ -517,7 +656,7 @@ class DiskSampler:
         for _ in range(4):
             slaves = f"/sys/block/{name}/slaves"
             if os.path.isdir(slaves):
-                entries = os.listdir(slaves)
+                entries = list_dir(slaves)
                 if entries:
                     name = entries[0]
                     continue
@@ -528,7 +667,7 @@ class DiskSampler:
         if match and os.path.isdir(f"/sys/block/{match.group(1)}"):
             return match.group(1)
         # Partition directories live under their parent in sysfs.
-        for disk in os.listdir("/sys/block") if os.path.isdir("/sys/block") else []:
+        for disk in list_dir("/sys/block"):
             if os.path.isdir(f"/sys/block/{disk}/{name}"):
                 return disk
         return name
@@ -539,7 +678,9 @@ class DiskSampler:
             parts = line.split()
             if len(parts) < 3:
                 continue
-            device, mount, fstype = parts[0], parts[1].replace("\\040", " "), parts[2]
+            device = bounded_text(parts[0], 4096)
+            mount = bounded_text(parts[1].replace("\\040", " "), 4096)
+            fstype = bounded_text(parts[2], 64)
             if fstype not in REAL_FS or not device.startswith("/"):
                 continue
             if mount.startswith(("/proc", "/sys", "/dev", "/run/user", "/var/lib/docker", "/snap")):
@@ -557,8 +698,13 @@ class DiskSampler:
             existing = volumes.get(key)
             if existing and len(existing["mount"]) <= len(mount):
                 continue
+            if existing is None and len(volumes) >= 256:
+                continue
             disk = self._parent_disk(device)
-            model = read_text(f"/sys/block/{disk}/device/model") or read_text(f"/sys/block/{disk}/device/name")
+            model = bounded_text(
+                read_text(f"/sys/block/{disk}/device/model")
+                or read_text(f"/sys/block/{disk}/device/name")
+            )
             rotational = read_int(f"/sys/block/{disk}/queue/rotational", 0) == 1
             volumes[key] = {
                 "mount": mount,
@@ -650,34 +796,36 @@ class NetworkSampler:
 
     def _refresh_addresses(self) -> None:
         self.addr_cache = {}
-        if not shutil.which("ip"):
+        if not command_path("ip"):
             return
         try:
             data = json.loads(run(["ip", "-j", "addr"]) or "[]")
         except json.JSONDecodeError:
             return
         for iface in data:
-            name = iface.get("ifname", "")
+            name = bounded_text(str(iface.get("ifname", "")))
+            if not name:
+                continue
             v4, v6 = [], []
             for addr in iface.get("addr_info", []):
                 if addr.get("scope") != "global":
                     continue
                 if addr.get("family") == "inet":
-                    v4.append(addr.get("local", ""))
+                    v4.append(bounded_text(str(addr.get("local", "")), 64))
                 elif addr.get("family") == "inet6" and not addr.get("temporary"):
-                    v6.append(addr.get("local", ""))
+                    v6.append(bounded_text(str(addr.get("local", "")), 64))
             self.addr_cache[name] = {"ipv4": v4, "ipv6": v6}
 
     def _refresh_wifi(self, ifaces: list[str]) -> None:
         self.wifi_cache = {}
-        if not shutil.which("iw"):
+        if not command_path("iw"):
             return
         for name in ifaces:
             info: dict = {}
             for line in run(["iw", "dev", name, "link"]).splitlines():
                 line = line.strip()
                 if line.startswith("SSID:"):
-                    info["ssid"] = line[5:].strip()
+                    info["ssid"] = bounded_text(line[5:].strip(), 128)
                 elif line.startswith("signal:"):
                     match = re.search(r"(-?\d+) dBm", line)
                     if match:
@@ -703,8 +851,9 @@ class NetworkSampler:
             for url in ("https://api.ipify.org", "https://icanhazip.com", "https://ifconfig.me/ip"):
                 try:
                     with urllib.request.urlopen(url, timeout=5) as response:
-                        candidate = response.read(64).decode("utf-8", "replace").strip()
-                    if re.fullmatch(r"[0-9a-fA-F.:]+", candidate):
+                        raw = response.read(65)
+                        candidate = raw.decode("utf-8", "replace").strip()
+                    if len(raw) <= 64 and re.fullmatch(r"[0-9a-fA-F.:]+", candidate):
                         result = candidate
                         break
                 except Exception:
@@ -794,21 +943,26 @@ class SensorSampler:
     def _scan(self) -> None:
         base = "/sys/class/hwmon"
         chips: list[dict] = []
+        remaining = 1024
         if not os.path.isdir(base):
             self.chips = []
             return
-        for hw in sorted(os.listdir(base), key=lambda h: int(h[5:]) if h[5:].isdigit() else 0):
+        for hw in sorted(list_dir(base), key=lambda h: int(h[5:]) if h[5:].isdigit() else 0):
+            if remaining == 0:
+                break
             path = f"{base}/{hw}"
-            name = read_text(f"{path}/name")
+            name = bounded_text(read_text(f"{path}/name"))
             if not name:
                 continue
             temps, fans = [], []
-            for entry in sorted(os.listdir(path)):
+            for entry in list_dir(path):
+                if len(temps) + len(fans) >= remaining:
+                    break
                 if entry.startswith("temp") and entry.endswith("_input"):
                     key = entry[:-6]
                     temps.append({
                         "key": key,
-                        "label": read_text(f"{path}/{key}_label"),
+                        "label": bounded_text(read_text(f"{path}/{key}_label")),
                         "path": f"{path}/{entry}",
                         "max": read_int(f"{path}/{key}_max") or read_int(f"{path}/{key}_crit") or 0,
                     })
@@ -816,11 +970,12 @@ class SensorSampler:
                     key = entry[:-6]
                     fans.append({
                         "key": key,
-                        "label": read_text(f"{path}/{key}_label"),
+                        "label": bounded_text(read_text(f"{path}/{key}_label")),
                         "path": f"{path}/{entry}",
                     })
             if not temps and not fans:
                 continue
+            remaining -= len(temps) + len(fans)
             chips.append({"name": name, "path": path, "temps": temps, "fans": fans,
                           "labelled": any(t["label"] for t in temps) or any(f["label"] for f in fans)})
         # Some boards expose the same super-IO chip twice (vendor + generic driver).
@@ -876,7 +1031,7 @@ class SensorSampler:
             return "Wi-Fi"
         if name.startswith("nct") or name.startswith("it87") or name.startswith("f71"):
             return "Board"
-        return name
+        return bounded_text(name)
 
     def sample(self, now: float) -> dict:
         if now - self.stamp > 30:
@@ -942,7 +1097,7 @@ def sample_battery() -> dict | None:
     system = None
     peripherals = []
     ac_online = None
-    for entry in sorted(os.listdir(base)):
+    for entry in list_dir(base):
         path = f"{base}/{entry}"
         ptype = read_text(f"{path}/type")
         if ptype in ("Mains", "USB", "USB_PD", "USB_C"):
@@ -954,11 +1109,11 @@ def sample_battery() -> dict | None:
             continue
         scope = read_text(f"{path}/scope")
         capacity = read_int(f"{path}/capacity")
-        status = read_text(f"{path}/status") or "Unknown"
-        model = read_text(f"{path}/model_name")
+        status = bounded_text(read_text(f"{path}/status") or "Unknown")
+        model = bounded_text(read_text(f"{path}/model_name"))
         if scope == "Device" or entry.startswith(("hid", "wacom")) or (not entry.startswith("BAT") and read_int(f"{path}/present", 1) == 1 and read_int(f"{path}/energy_full") is None and read_int(f"{path}/charge_full") is None):
-            if capacity is not None:
-                peripherals.append({"name": model or entry, "percent": capacity, "status": status})
+            if capacity is not None and len(peripherals) < 256:
+                peripherals.append({"name": model or bounded_text(entry), "percent": capacity, "status": status})
             continue
         if system is not None:
             continue
@@ -1005,7 +1160,7 @@ def sample_battery() -> dict | None:
             "health": health,
             "acOnline": ac_online,
             "model": model,
-            "technology": read_text(f"{path}/technology"),
+            "technology": bounded_text(read_text(f"{path}/technology")),
         }
     if system is None:
         if peripherals:
@@ -1023,13 +1178,13 @@ def sample_battery() -> dict | None:
 def display_name(pid: int, comm: str) -> str:
     """A readable name: the kernel's 15-char comm, or the executable's basename."""
     if len(comm) < 15:
-        return comm
+        return bounded_text(comm)
     cmdline = read_text(f"/proc/{pid}/cmdline").split("\0")[0]
     if cmdline:
         base = os.path.basename(cmdline)
         if base.startswith(comm[:8]) or len(base) > len(comm):
-            return base
-    return comm
+            return bounded_text(base)
+    return bounded_text(comm)
 
 
 class ProcessSampler:
@@ -1049,13 +1204,16 @@ class ProcessSampler:
         current: dict[int, tuple[int, int, int, int]] = {}
         by_name: dict[str, dict] = {}
         names: dict[int, str] = {}
-        for entry in os.listdir("/proc"):
+        for entry in list_dir("/proc", PROCESS_SCAN_LIMIT):
             if not entry.isdigit():
                 continue
             pid = int(entry)
             try:
                 with open(f"/proc/{pid}/stat", "rb") as handle:
-                    stat = handle.read().decode("utf-8", "replace")
+                    raw_stat = handle.read(PROC_FILE_LIMIT + 1)
+                if len(raw_stat) > PROC_FILE_LIMIT:
+                    continue
+                stat = raw_stat.decode("utf-8", "replace")
             except OSError:
                 continue
             close = stat.rfind(")")
@@ -1073,7 +1231,10 @@ class ProcessSampler:
             read_bytes = write_bytes = 0
             try:
                 with open(f"/proc/{pid}/io", "rb") as handle:
-                    for line in handle:
+                    raw_io = handle.read(PROC_FILE_LIMIT + 1)
+                    if len(raw_io) > PROC_FILE_LIMIT:
+                        raw_io = b""
+                    for line in raw_io.splitlines():
                         if line.startswith(b"read_bytes:"):
                             read_bytes = int(line.split()[1])
                         elif line.startswith(b"write_bytes:"):
@@ -1171,18 +1332,22 @@ class ProcessSampler:
             if ino:
                 current = {"sent": 0, "recv": 0, "cgroup": cgroup, "established": line.startswith("ESTAB")}
                 sockets[ino] = current
+                if len(sockets) > SOCKET_SCAN_LIMIT:
+                    self.sockets_prev = {}
+                    self.sockets_time = None
+                    return []
         if not sockets:
             self.sockets_prev = {}
             self.sockets_time = None
             return []
 
         owner: dict[str, tuple[int, str]] = {}
-        for entry in os.listdir("/proc"):
+        for entry in list_dir("/proc", PROCESS_SCAN_LIMIT):
             if not entry.isdigit():
                 continue
             pid = int(entry)
             try:
-                fds = os.listdir(f"/proc/{pid}/fd")
+                fds = list_dir(f"/proc/{pid}/fd", FD_SCAN_LIMIT)
             except OSError:
                 continue
             name: str | None = None
@@ -1243,10 +1408,10 @@ def cgroup_label(cgroup: str) -> str:
     if stem.startswith("app-"):
         parts = stem[4:].split("-")
         if len(parts) >= 3:
-            return "-".join(parts[1:-1])
+            return bounded_text("-".join(parts[1:-1]))
         if len(parts) == 2:
-            return parts[1]
-    return stem or "other"
+            return bounded_text(parts[1])
+    return bounded_text(stem) or "other"
 
 
 # ---------------------------------------------------------------------------- main
@@ -1262,7 +1427,7 @@ class Controller:
         self.stop = False
 
     def listen(self) -> None:
-        for line in sys.stdin:
+        for line in bounded_lines(sys.stdin.buffer, CONTROL_LINE_LIMIT):
             parts = line.strip().split()
             if not parts:
                 continue

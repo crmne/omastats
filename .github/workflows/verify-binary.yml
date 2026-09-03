@@ -1,0 +1,105 @@
+name: Verify bundled Rust binary
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+  attestations: write
+
+env:
+  CARGO_HOME: /tmp/omastats-cargo-home
+  CARGO_INCREMENTAL: 0
+  RUSTFLAGS: --remap-path-prefix=/tmp/omastats-cargo-home=/cargo-home --remap-path-prefix=${{ github.workspace }}=/source
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    container:
+      image: archlinux@sha256:84cd9ef000b3cff245ec028e87965b84724f4bf1cc63fc2741ba927b88515ed6
+
+    steps:
+      - name: Check out the exact source commit
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+      - name: Install the dated, signed Arch build environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          sed -i '1cServer = https://archive.archlinux.org/repos/2026/09/02/$repo/os/$arch' /etc/pacman.d/mirrorlist
+          sed -i '2,$d' /etc/pacman.d/mirrorlist
+          pacman -Syy --noconfirm
+          pacman -S --noconfirm --needed rust gcc binutils git python
+          test "$(pacman -Q rust)" = 'rust 1:1.98.0-1'
+          test "$(pacman -Q gcc)" = 'gcc 16.2.1+r23+gd564253eb6c8-1'
+          test "$(pacman -Q gcc-libs)" = 'gcc-libs 16.2.1+r23+gd564253eb6c8-1'
+          test "$(pacman -Q binutils)" = 'binutils 2.47-4'
+          test "$(pacman -Q glibc)" = 'glibc 2.44+r24+g16be1518495f-1'
+          test "$(pacman -Q git)" = 'git 2.55.0-1'
+          test "$(pacman -Q python)" = 'python 3.14.7-1'
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Test and lint the retained source
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test --locked --manifest-path sampler/Cargo.toml --target-dir /tmp/omastats-tests
+          cargo clippy --locked --manifest-path sampler/Cargo.toml --target-dir /tmp/omastats-clippy -- -D warnings
+          bash -n sampler.sh
+          python - <<'PY'
+          from pathlib import Path
+          compile(Path("sampler.py").read_bytes(), "sampler.py", "exec")
+          PY
+          python sampler.py --once | python -c 'import json, sys; payload = json.load(sys.stdin); assert payload["seq"] == 0'
+
+      - name: Rebuild twice and compare with the bundled ELF
+        shell: bash
+        run: |
+          set -euo pipefail
+          export SOURCE_DATE_EPOCH="$(git show -s --format=%ct "$GITHUB_SHA")"
+          cargo build --release --locked --manifest-path sampler/Cargo.toml --target-dir /tmp/omastats-build-a
+          cargo build --release --locked --manifest-path sampler/Cargo.toml --target-dir /tmp/omastats-build-b
+          cmp --silent /tmp/omastats-build-a/release/omastats-sampler /tmp/omastats-build-b/release/omastats-sampler
+          cmp --silent /tmp/omastats-build-a/release/omastats-sampler bin/omastats-sampler
+          sha256sum --check --strict bin/omastats-sampler.sha256
+          /tmp/omastats-build-a/release/omastats-sampler --once | python -c 'import json, sys; payload = json.load(sys.stdin); assert payload["seq"] == 0'
+
+      - name: Write the verification report
+        shell: bash
+        env:
+          BUILDER_IMAGE: archlinux@sha256:84cd9ef000b3cff245ec028e87965b84724f4bf1cc63fc2741ba927b88515ed6
+        run: |
+          set -euo pipefail
+          {
+            echo 'format=omastats-binary-provenance-v1'
+            echo "source_commit=$GITHUB_SHA"
+            echo "source_date_epoch=$(git show -s --format=%ct "$GITHUB_SHA")"
+            echo "builder_image=$BUILDER_IMAGE"
+            echo "rustflags=$RUSTFLAGS"
+            echo "cargo_lock_sha256=$(sha256sum sampler/Cargo.lock | cut -d' ' -f1)"
+            echo "binary_sha256=$(sha256sum bin/omastats-sampler | cut -d' ' -f1)"
+            echo 'verified_reproducible_builds=2'
+            echo 'verified_bundled_binary=true'
+            pacman -Q rust gcc gcc-libs binutils glibc git python
+            rustc --version --verbose
+          } > binary-provenance.txt
+
+      - name: Sign GitHub artifact attestations
+        if: github.event_name != 'pull_request'
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8
+        with:
+          subject-path: |
+            bin/omastats-sampler
+            binary-provenance.txt
+
+      - name: Upload the verification report
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: binary-provenance-${{ github.sha }}
+          path: binary-provenance.txt
+          if-no-files-found: error
+          retention-days: 90
