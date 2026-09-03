@@ -14,6 +14,8 @@ resident memory; `sampler.py` remains the readable, cross-architecture fallback.
   binutils 2.47, and glibc 2.44 at the recorded Arch package releases.
 - Compiler path remapping gives the source checkout and Cargo cache stable
   virtual paths, so local filesystem locations cannot leak into the ELF.
+- `SOURCE_DATE_EPOCH` is fixed at `1788307200` (2026-09-02 00:00:00 UTC), the
+  date of the archived build environment.
 - Every GitHub Action is referenced by its full commit SHA.
 
 The executable has no update or download mechanism. It runs unprivileged, reads
@@ -80,5 +82,5 @@ gh attestation verify bin/omastats-sampler \
 ```
 
 The uploaded `binary-provenance-<commit>` report records the builder image,
-source commit and timestamp, Cargo lockfile digest, artifact digest, exact Arch
-packages, and full `rustc` identity used for that run.
+source commit, reproducible-build epoch, Cargo lockfile digest, artifact digest,
+exact Arch packages, and full `rustc` identity used for that run.
