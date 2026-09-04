@@ -8,7 +8,7 @@ SOURCE_DATE_EPOCH := 1788307200
 
 all: build
 
-# Build the Rust sampler and place it where sampler.sh looks first.
+# Build the Rust sampler and place it where sampler.py looks first.
 build:
 	SOURCE_DATE_EPOCH="$(SOURCE_DATE_EPOCH)" CARGO_HOME="$(CARGO_HOME)" \
 		CARGO_INCREMENTAL=0 RUSTFLAGS="$(REPRO_RUSTFLAGS)" \

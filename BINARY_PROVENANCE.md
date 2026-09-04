@@ -22,12 +22,16 @@ The executable has no update or download mechanism. It runs unprivileged, reads
 procfs/sysfs, and invokes only a small allowlist of optional helpers resolved
 from `/usr/bin` or `/bin`. Helper processes have deadlines, process-group
 termination, and a 1 MiB output limit. File, line, and directory reads are also
-bounded.
+bounded. Each serialized sampler record is capped at 512 KiB before it is
+written to the shell's streaming parser.
 
 ### Runtime capability map
 
-The Rust executable uses no shell and requests no elevated privileges. Its
-runtime inputs are deliberately narrow:
+The plugin's runtime launch path uses no shell and requests no elevated
+privileges. Quickshell invokes `/usr/bin/python3` by absolute path in isolated
+mode with a cleared environment; that entry point replaces itself with the Rust
+executable by absolute path when compatible. Its runtime inputs are deliberately
+narrow:
 
 - read-only system telemetry from `/proc` and `/sys`;
 - `nvidia-smi` for NVIDIA telemetry and `lspci` for a human-readable GPU name;

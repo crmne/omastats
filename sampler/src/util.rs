@@ -10,6 +10,7 @@ use std::time::{Duration, Instant};
 pub const CONTROL_LINE_LIMIT: usize = 4 * 1024;
 pub const EXTERNAL_TEXT_LIMIT: usize = 512;
 pub const STREAM_LINE_LIMIT: usize = 64 * 1024;
+pub const OUTPUT_LINE_LIMIT: usize = 512 * 1024;
 
 const FILE_READ_LIMIT: u64 = 1024 * 1024;
 const COMMAND_OUTPUT_LIMIT: usize = 1024 * 1024;

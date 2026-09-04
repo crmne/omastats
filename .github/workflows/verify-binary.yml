@@ -50,12 +50,40 @@ jobs:
           set -euo pipefail
           cargo test --locked --manifest-path sampler/Cargo.toml --target-dir /tmp/omastats-tests
           cargo clippy --locked --manifest-path sampler/Cargo.toml --target-dir /tmp/omastats-clippy -- -D warnings
-          bash -n sampler.sh
           python - <<'PY'
           from pathlib import Path
-          compile(Path("sampler.py").read_bytes(), "sampler.py", "exec")
+          import json
+          import subprocess
+
+          source = Path("sampler.py").read_bytes()
+          compile(source, "sampler.py", "exec")
+          namespace = {"__name__": "sampler_test", "__file__": "sampler.py"}
+          exec(compile(source, "sampler.py", "exec"), namespace)
+          bounded = namespace["encode_payload"]({"seq": 7, "blob": "x" * (512 * 1024 + 1)})
+          assert len(bounded) <= 512 * 1024 + 1
+          assert b"output limit" in bounded
+          qml = "\n".join(path.read_text() for path in Path(".").rglob("*.qml"))
+          assert '["bash"' not in qml
+          service = Path("OmaStatsService.qml").read_text()
+          assert "clearEnvironment: true" in service
+          assert "Component.onDestruction" in service
+
+          process = subprocess.Popen(
+              ["/usr/bin/python3", "-I", "sampler.py", "--python", "--interval", "0.1"],
+              env={"LANG": "C.UTF-8", "LC_ALL": "C.UTF-8"},
+              stdin=subprocess.PIPE,
+              stdout=subprocess.PIPE,
+              stderr=subprocess.PIPE,
+          )
+          record = process.stdout.readline()
+          assert json.loads(record)["seq"] == 0
+          process.stdin.write(b"quit\n")
+          process.stdin.flush()
+          process.wait(timeout=5)
+          assert process.returncode == 0
+          assert process.stderr.read() == b""
           PY
-          python sampler.py --once | python -c 'import json, sys; payload = json.load(sys.stdin); assert payload["seq"] == 0'
+          python -I sampler.py --python --once | python -c 'import json, sys; raw = sys.stdin.buffer.readline(); payload = json.loads(raw); assert payload["seq"] == 0; assert len(raw) <= 512 * 1024 + 1'
 
       - name: Rebuild twice and compare with the bundled ELF
         shell: bash
@@ -66,7 +94,7 @@ jobs:
           cmp --silent /tmp/omastats-build-a/release/omastats-sampler /tmp/omastats-build-b/release/omastats-sampler
           cmp --silent /tmp/omastats-build-a/release/omastats-sampler bin/omastats-sampler
           sha256sum --check --strict bin/omastats-sampler.sha256
-          /tmp/omastats-build-a/release/omastats-sampler --once | python -c 'import json, sys; payload = json.load(sys.stdin); assert payload["seq"] == 0'
+          /tmp/omastats-build-a/release/omastats-sampler --once | python -c 'import json, sys; raw = sys.stdin.buffer.readline(); payload = json.loads(raw); assert payload["seq"] == 0; assert len(raw) <= 512 * 1024 + 1'
 
       - name: Write the verification report
         shell: bash

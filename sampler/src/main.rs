@@ -39,6 +39,32 @@ struct Control {
     stop: bool,
 }
 
+fn bounded_output_line(
+    payload: &Value,
+    seq: u64,
+    now: f64,
+    elapsed: f64,
+    interval: f64,
+) -> Option<String> {
+    let line = serde_json::to_string(payload).ok()?;
+    if line.len() <= util::OUTPUT_LINE_LIMIT {
+        return Some(line);
+    }
+    Some(
+        json!({
+            "seq": seq,
+            "t": now,
+            "elapsed": (elapsed * 1000.0).round() / 1000.0,
+            "interval": interval,
+            "errors": [format!(
+                "sample exceeded {}-byte output limit",
+                util::OUTPUT_LINE_LIMIT
+            )],
+        })
+        .to_string(),
+    )
+}
+
 fn listen(control: Arc<Mutex<Control>>) {
     let stdin = std::io::stdin();
     let mut input = BufReader::new(stdin.lock());
@@ -76,9 +102,7 @@ fn listen(control: Arc<Mutex<Control>>) {
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    // Lets sampler.sh check that this build runs on this machine before
-    // committing to it; a binary for another architecture fails here and
-    // the Python sampler takes over.
+    // Lets the Python entry point verify this build directly when requested.
     if args.iter().any(|a| a == "--version" || a == "-V") {
         println!("omastats-sampler {}", env!("CARGO_PKG_VERSION"));
         return;
@@ -218,9 +242,9 @@ fn main() {
         payload["battery"] = battery_cache.clone();
         payload["procs"] = procs_cache.clone();
 
-        let line = match serde_json::to_string(&payload) {
-            Ok(l) => l,
-            Err(_) => continue,
+        let line = match bounded_output_line(&payload, seq, now, elapsed, current_interval) {
+            Some(l) => l,
+            None => continue,
         };
         if writeln!(out, "{line}").is_err() || out.flush().is_err() {
             break;
@@ -236,4 +260,18 @@ fn main() {
     }
 
     gpu.stop();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn oversized_output_is_replaced_by_a_bounded_error_record() {
+        let payload = json!({"blob": "x".repeat(util::OUTPUT_LINE_LIMIT + 1)});
+        let line = bounded_output_line(&payload, 7, 1.0, 1.0, 1.0).unwrap();
+        assert!(line.len() <= util::OUTPUT_LINE_LIMIT);
+        assert!(line.contains("output limit"));
+        assert_eq!(serde_json::from_str::<Value>(&line).unwrap()["seq"], 7);
+    }
 }

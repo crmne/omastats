@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/python3
 """System sampler for the OmaStats plugin.
 
 Emits one JSON object per line on stdout at a fixed interval. Reads procfs and
@@ -44,12 +44,46 @@ EXTERNAL_TEXT_LIMIT = 512
 STREAM_LINE_LIMIT = 64 * 1024
 FILE_READ_LIMIT = 1024 * 1024
 COMMAND_OUTPUT_LIMIT = 1024 * 1024
+OUTPUT_LINE_LIMIT = 512 * 1024
 DIRECTORY_ENTRY_LIMIT = 4096
 PROCESS_SCAN_LIMIT = 16_384
 FD_SCAN_LIMIT = 4096
 SOCKET_SCAN_LIMIT = 16_384
 PROC_FILE_LIMIT = 64 * 1024
 TOOL_DIRS = ("/usr/bin", "/bin")
+
+
+def exec_compiled_sampler(args: list[str]) -> None:
+    """Replace this process with a compatible bundled or locally built sampler."""
+    root = os.path.dirname(os.path.realpath(__file__))
+    candidates = (
+        os.path.join(root, "bin", "omastats-sampler"),
+        os.path.join(root, "sampler", "target", "release", "omastats-sampler"),
+    )
+    for candidate in candidates:
+        if not os.path.isfile(candidate) or not os.access(candidate, os.X_OK):
+            continue
+        try:
+            os.execv(candidate, [candidate, *args])
+        except OSError:
+            # A binary for another architecture, a missing loader, or another
+            # execution failure falls through to the Python implementation.
+            continue
+
+
+def encode_payload(payload: dict) -> bytes:
+    """Serialize one bounded JSON-lines record for the QML stream parser."""
+    encoded = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+    if len(encoded) <= OUTPUT_LINE_LIMIT:
+        return encoded + b"\n"
+    fallback = {
+        "seq": payload.get("seq", 0),
+        "t": payload.get("t", time.time()),
+        "elapsed": payload.get("elapsed", 0),
+        "interval": payload.get("interval", 1),
+        "errors": [f"sample exceeded {OUTPUT_LINE_LIMIT}-byte output limit"],
+    }
+    return json.dumps(fallback, separators=(",", ":")).encode("utf-8") + b"\n"
 
 
 def bounded_text(value: str, limit: int = EXTERNAL_TEXT_LIMIT) -> str:
@@ -1445,11 +1479,16 @@ class Controller:
                     self.public_ip_requested = True
                 elif parts[0] == "quit":
                     self.stop = True
+                    return
 
 
 def main() -> int:
     interval = 1.0
     args = sys.argv[1:]
+    force_python = "--python" in args
+    args = [arg for arg in args if arg != "--python"]
+    if not force_python:
+        exec_compiled_sampler(args)
     if "--version" in args or "-V" in args:
         print("omastats-sampler 1.0.0 (python)")
         return 0
@@ -1559,8 +1598,8 @@ def main() -> int:
         payload["battery"] = battery_cache
         payload["procs"] = procs_cache
         try:
-            sys.stdout.write(json.dumps(payload, separators=(",", ":")) + "\n")
-            sys.stdout.flush()
+            sys.stdout.buffer.write(encode_payload(payload))
+            sys.stdout.buffer.flush()
         except BrokenPipeError:
             break
         seq += 1

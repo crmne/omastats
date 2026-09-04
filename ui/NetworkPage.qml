@@ -50,7 +50,7 @@ Column {
 
   function copy(text) {
     if (!text) return
-    Quickshell.execDetached(["bash", "-lc", 'printf %s "$1" | wl-copy', "bash", String(text)])
+    Quickshell.execDetached(["/usr/bin/wl-copy", "--", String(text)])
     copiedValue = text
     copiedTimer.restart()
   }

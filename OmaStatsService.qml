@@ -26,6 +26,7 @@ Item {
   property var instanceSettings: ({})
   property int restartCount: 0
   property var instances: []
+  property bool destroying: false
 
   readonly property var palette: Model.pickPalette(themeColors, Color.accent, Color.foreground, Color.background, Color.urgent)
   readonly property color series1: palette.series1
@@ -37,9 +38,11 @@ Item {
 
   readonly property bool hasGpu: !!(snapshot && snapshot.gpu)
   readonly property bool hasBattery: !!(snapshot && snapshot.battery && snapshot.battery.present)
-  // sampler.sh runs the compiled Rust sampler when present and falls back to
-  // the Python one; both speak the same JSON-lines protocol.
-  readonly property string samplerPath: Qt.resolvedUrl("sampler.sh").toString().replace(/^file:\/\//, "")
+  // The isolated Python entry point immediately execs the compiled sampler
+  // when it is compatible, otherwise it remains the fallback implementation.
+  // Absolute paths and a cleared environment keep launch behavior independent
+  // of PATH, shell startup files, and Python environment hooks.
+  readonly property string samplerPath: Qt.resolvedUrl("sampler.py").toString().replace(/^file:\/\//, "")
 
   function ingest(line) {
     var text = String(line || "")
@@ -214,18 +217,16 @@ Item {
 
   Process {
     id: sampler
-    command: ["bash", root.samplerPath, "--interval", "1"]
+    command: ["/usr/bin/python3", "-I", root.samplerPath, "--interval", "1"]
+    clearEnvironment: true
+    environment: ({ "LANG": "C.UTF-8", "LC_ALL": "C.UTF-8" })
     running: true
     stdinEnabled: true
     stdout: SplitParser {
       onRead: function(line) { root.ingest(line) }
     }
-    stderr: SplitParser {
-      onRead: function(line) {
-        var text = String(line || "").trim()
-        if (text) console.warn("crmne.omastats sampler:", text)
-      }
-    }
+    // Expected diagnostics travel in the bounded JSON stream. Leaving stderr
+    // unbound makes Quickshell close that channel instead of buffering it.
     onStarted: {
       if (root.sentDetail > 0) root.send("detail " + root.sentDetail)
       if (root.focusPage) root.send("focus " + root.focusPage)
@@ -234,6 +235,7 @@ Item {
     }
     onExited: function(code, status) {
       root.ready = false
+      if (root.destroying) return
       root.restartCount += 1
       restartTimer.interval = Math.min(30000, 1000 * Math.pow(2, Math.min(5, root.restartCount)))
       restartTimer.restart()
@@ -243,7 +245,7 @@ Item {
   Timer {
     id: restartTimer
     repeat: false
-    onTriggered: if (!sampler.running) sampler.running = true
+    onTriggered: if (!root.destroying && !sampler.running) sampler.running = true
   }
 
   // A healthy sampler that has streamed for a while resets the backoff.
@@ -271,6 +273,15 @@ Item {
     function onAccentChanged() { colorsFile.reload() }
     function onBackgroundChanged() { colorsFile.reload() }
     function onForegroundChanged() { colorsFile.reload() }
+  }
+
+  Component.onDestruction: {
+    root.destroying = true
+    restartTimer.stop()
+    if (sampler.running) {
+      sampler.write("quit\n")
+      sampler.running = false
+    }
   }
 
   IpcHandler {

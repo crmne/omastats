@@ -60,6 +60,13 @@ implementations ship with the same JSON protocol:
 - `sampler.py` — a Python 3 fallback used whenever that binary is missing or
   cannot run here (another architecture, for instance). No third-party modules.
 
+The service starts `/usr/bin/python3` in isolated mode with a cleared
+environment. That entry point immediately replaces itself with the Rust binary
+when it can run, retaining the same process ID; otherwise it continues as the
+Python sampler. No shell participates in the runtime launch path. Every emitted
+JSON record is capped before it reaches the shell's streaming parser, and the
+sampler is explicitly stopped when the plugin service is destroyed.
+
 Optional command-line tools, each used only for the feature named, and each
 degrading to "unavailable" when missing: `nvidia-smi` (NVIDIA GPU readings;
 AMD and Intel come from sysfs), `ip` and `iw` (addresses, Wi-Fi signal),
