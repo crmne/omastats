@@ -44,6 +44,7 @@ Column {
     for (var i = 0; i < Model.PANEL_TABS.length; i++) {
       var id = Model.PANEL_TABS[i]
       if (id === "battery" && !hasBattery) continue
+      if (id === "gpu" && !hasGpu) continue
       out.push(id)
     }
     return out
