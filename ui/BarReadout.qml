@@ -17,6 +17,10 @@ WidgetButton {
   // Disks: "all" or a block device name. Sensors: comma list of sensor ids.
   property string disksSource: "all"
   property string barSensors: "cpu"
+  // GPU: which card this readout follows, by PCI address ("" = the first).
+  property string gpuId: ""
+  // Replaces the stacked label when several GPUs share the bar.
+  property string shortLabel: ""
   // "text" stacks the module's short name vertically, iStat style; "icon" uses a glyph.
   property string labelMode: "text"
 
@@ -37,7 +41,14 @@ WidgetButton {
   readonly property real graphHeight: Math.max(8, barSize - Style.space(11))
 
   readonly property var cpu: snap.cpu || ({})
-  readonly property var gpu: snap.gpu || null
+  readonly property var gpu: {
+    var list = Model.gpuList(snap)
+    if (list.length === 0) return null
+    if (!gpuId) return list[0]
+    for (var i = 0; i < list.length; i++) if (Model.gpuId(list[i]) === gpuId) return list[i]
+    return null
+  }
+  readonly property var gpuSeries: Model.gpuHistory(hist, gpuId || Model.gpuId(gpu))
   readonly property var mem: snap.mem || ({})
   readonly property var net: snap.net || ({})
   readonly property var disks: snap.disks || ({})
@@ -58,7 +69,7 @@ WidgetButton {
   readonly property real ringValue: {
     switch (module) {
       case "cpu": return Model.num(cpu.total) / 100
-      case "gpu": return gpu && isFinite(Number(gpu.util)) ? Model.num(gpu.util) / 100 : 0
+      case "gpu": return Model.gpuHasUtil(gpu) ? Model.num(gpu.util) / 100 : 0
       case "memory": return memPercent / 100
       case "battery": return battery ? Model.num(battery.percent) / 100 : 0
       case "disks": {
@@ -103,7 +114,9 @@ WidgetButton {
     if (!ready) return "…"
     switch (module) {
       case "cpu": return Model.percentText(cpu.total)
-      case "gpu": return gpu && isFinite(Number(gpu.util)) ? Model.percentText(gpu.util) : "—"
+      case "gpu":
+        if (Model.gpuHasUtil(gpu)) return Model.percentText(gpu.util)
+        return gpu ? Model.compactFreq(gpu.mhz) : "—"
       case "memory": return Model.percentText(memPercent)
       case "battery": return battery ? Model.percentText(battery.percent) : "—"
       case "network": return "↑ " + Model.compactRate(net.tx)
@@ -150,7 +163,8 @@ WidgetButton {
         return parts.join(" · ") + "\nLoad " + Model.loadText(cpu.load) + " · Up " + Model.uptimeText(cpu.uptime)
       case "gpu":
         if (!gpu) return "GPU not detected"
-        parts.push(Model.shortGpuName(gpu.name) + " " + (isFinite(Number(gpu.util)) ? Model.percentText(gpu.util) : ""))
+        parts.push(Model.gpuTitle(gpu) + (Model.gpuHasUtil(gpu) ? " " + Model.percentText(gpu.util) : ""))
+        if (!Model.gpuHasUtil(gpu)) parts.push("load not reported")
         if (Model.freqText(gpu.mhz)) parts.push(Model.freqText(gpu.mhz))
         if (isFinite(Number(gpu.temp))) parts.push(Model.tempLongText(gpu.temp, temperatureUnit))
         if (gpu.memTotal > 0) parts.push(Model.pairText(gpu.memUsed, gpu.memTotal))
@@ -217,7 +231,7 @@ WidgetButton {
 
     StackLabel {
       visible: root.module !== "sensors" && root.labelMode === "text"
-      text: root.def.short || root.def.label
+      text: root.shortLabel || root.def.short || root.def.label
       color: root.foreground
       fontFamily: root.fontFamily
       letterSize: Style.spaceReal(10)
@@ -325,7 +339,7 @@ WidgetButton {
       ceiling: 100
       series: root.module === "cpu"
         ? [root.hist.cpuUser || [], root.hist.cpuSystem || []]
-        : [root.module === "memory" ? (root.hist.memUsed || []) : (root.hist.gpu || [])]
+        : [root.module === "memory" ? (root.hist.memUsed || []) : root.gpuSeries]
       colors: [root.s1, root.s2]
       baselineColor: Util.alpha(root.foreground, 0.28)
     }

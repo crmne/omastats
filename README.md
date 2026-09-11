@@ -18,14 +18,18 @@ OmaStats is an independent project and is not affiliated with Bjango.
 | Module  | Bar readout                         | Panel                                                                 |
 |---------|-------------------------------------|-----------------------------------------------------------------------|
 | CPU     | glyph · user/system history · %     | User/system history, per-core rings, load, uptime, GPU, top processes |
-| GPU     | glyph · utilisation history · %     | Shown on the CPU page (NVIDIA via `nvidia-smi`, AMD/Intel via sysfs)  |
+| GPU     | glyph · utilisation history · %     | One card per GPU on the CPU page (NVIDIA via `nvidia-smi`, AMD/Intel via sysfs) |
 | Memory  | glyph · used history · %            | Swap and memory rings, breakdown, processes                           |
 | Disks   | glyph · read/write history · rates  | Volumes (click to open in Files), activity for all disks or one, processes |
 | Network | glyph · up/down history · rates     | Upload/download, interfaces, public and local IPs, traffic per process |
 | Sensors | any temperatures and fans you pick  | CPU/GPU/fan rings, every hwmon temperature and fan                    |
 | Battery | glyph by level · %                  | Charge and health rings, charge history, power, cycles, peripherals   |
 
-Battery and GPU only appear when the hardware exists.
+Battery and GPU only appear when the hardware exists. A machine with more than
+one GPU gets a readout per card, each tagged in the bar (`NVD`, `AMD`, `IGP`);
+the Settings page picks which ones are shown, and a discrete card leads.
+Intel's i915/xe drivers publish no utilisation counter through sysfs, so an
+Intel readout carries its clock and temperature and reports no load.
 
 ## Install
 
@@ -112,6 +116,7 @@ edited there by hand or through Setup → Plugins:
 | `barLabels`               | `text`                                    | `text` stacks the module's letters vertically, `icon` uses glyphs |
 | `disksSource`             | `all`                                     | Disk readout and activity graph: `all` or a device like `nvme0n1` |
 | `barSensors`              | `cpu`                                     | Sensor readouts: `cpu`, `gpu`, or hwmon ids like `nct6687/fan1` |
+| `barGpus`                 | `all`                                     | Which GPUs get a readout: `all`, `none`, or PCI addresses like `0000:01:00.0` (pick them on the Settings page) |
 | `temperatureUnit`         | `Celsius`                                 | `Celsius` or `Fahrenheit`                                 |
 | `refreshSeconds`          | `1`                                       | Sampling interval: 0.1, 0.2, 0.5, 1, 2, 5 or 10           |
 | `historySeconds`          | `240`                                     | How far back the graphs reach, in seconds                 |

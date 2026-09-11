@@ -52,6 +52,37 @@ Column {
   readonly property var diskOptions: Model.diskOptions(snapshot)
   readonly property var sensorOptions: Model.sensorOptions(snapshot)
   readonly property var barSensorIds: Model.parseList(Model.settingValue(settings, "barSensors"))
+  readonly property var gpuOptions: Model.gpuList(snapshot)
+  // "all" keeps a GPU added later visible without another visit here.
+  readonly property var selectedGpuIds: {
+    var text = String(Model.settingValue(settings, "barGpus") || "all").trim().toLowerCase()
+    if (text === "none") return []
+    if (!text || text === "all") {
+      var every = []
+      for (var i = 0; i < gpuOptions.length; i++) every.push(Model.gpuId(gpuOptions[i]))
+      return every
+    }
+    return Model.parseList(text)
+  }
+
+  // Position in the sampler's order (discrete first), so the bar keeps a
+  // stable left-to-right order however the switches are flipped.
+  function gpuOrder(id) {
+    for (var i = 0; i < gpuOptions.length; i++) if (Model.gpuId(gpuOptions[i]) === id) return i
+    return gpuOptions.length
+  }
+
+  function setBarGpu(id, enabled) {
+    var list = selectedGpuIds.slice()
+    var at = list.indexOf(id)
+    if (enabled && at === -1) {
+      list.push(id)
+      list.sort(function(a, b) { return root.gpuOrder(a) - root.gpuOrder(b) })
+    }
+    if (!enabled && at !== -1) list.splice(at, 1)
+    if (list.length === 0) set("barGpus", "none")
+    else set("barGpus", list.length === gpuOptions.length ? "all" : list.join(","))
+  }
 
   function setBarSensor(id, enabled) {
     var list = barSensorIds.slice()
@@ -205,6 +236,27 @@ Column {
           foreground: root.foreground
           fontFamily: root.fontFamily
           onChanged: function(value) { root.set("disksSource", value) }
+        }
+
+        // GPUs: which cards get their own readout. Only worth showing on a
+        // machine that has more than one.
+        Column {
+          visible: moduleRow.enabled && moduleRow.moduleId === "gpu" && root.gpuOptions.length > 1
+          x: Style.space(12) + moduleSwitch.width + Style.space(12)
+          width: parent.width - x
+          spacing: 0
+
+          Repeater {
+            model: moduleRow.moduleId === "gpu" ? root.gpuOptions.length : 0
+
+            delegate: FlagRow {
+              required property int index
+              readonly property var gpu: root.gpuOptions[index] || ({})
+              label: Model.gpuTitle(gpu) + (Model.gpuHasUtil(gpu) ? "" : " · no load")
+              checked: root.selectedGpuIds.indexOf(Model.gpuId(gpu)) !== -1
+              onToggled: root.setBarGpu(Model.gpuId(gpu), !checked)
+            }
+          }
         }
 
         // Sensors: every reading the bar readout should carry.
