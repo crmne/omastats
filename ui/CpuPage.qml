@@ -23,6 +23,10 @@ Column {
 
   readonly property var cpu: snap.cpu || ({})
   readonly property var gpu: snap.gpu || null
+  // One card per GPU the user picked on the Settings page.
+  readonly property var gpuCards: flag("showGpu")
+    ? Model.selectedGpus(snap, Model.settingValue(settings, "barGpus"))
+    : []
   readonly property var procs: snap.procs || null
   readonly property var cores: Array.isArray(cpu.cores) ? cpu.cores : []
   readonly property var efficiency: Array.isArray(cpu.efficiency) ? cpu.efficiency : []
@@ -160,52 +164,67 @@ Column {
     }
   }
 
-  Card {
-    visible: !!root.gpu && root.flag("showGpu")
-    foreground: root.foreground
+  Repeater {
+    model: root.gpuCards.length
 
-    CardHeader {
-      title: "GPU"
-      detail: root.gpu ? root.headerDetail(root.gpu.mhz, root.gpu.temp) : ""
+    delegate: Card {
+      id: gpuCard
+      required property int index
+      readonly property var gpu: root.gpuCards[index] || null
+      readonly property bool hasUtil: Model.gpuHasUtil(gpu)
+
       foreground: root.foreground
-      fontFamily: root.fontFamily
-    }
 
-    HistoryGraph {
-      width: parent.width
-      height: Style.space(48)
-      series: [root.hist.gpu || []]
-      colors: [root.s1]
-      ceiling: 100
-      baselineColor: Util.alpha(root.foreground, 0.14)
-    }
+      CardHeader {
+        // Naming each card only matters once there is more than one.
+        title: root.gpuCards.length > 1 ? Model.gpuTitle(gpuCard.gpu) : "GPU"
+        detail: gpuCard.gpu ? root.headerDetail(gpuCard.gpu.mhz, gpuCard.gpu.temp) : ""
+        foreground: root.foreground
+        fontFamily: root.fontFamily
+      }
 
-    StatRow {
-      label: root.gpu ? Model.shortGpuName(root.gpu.name) : "Processor"
-      dot: root.s1
-      value: root.gpu && isFinite(Number(root.gpu.util)) ? String(Math.round(root.gpu.util)) : "—"
-      unit: root.gpu && isFinite(Number(root.gpu.util)) ? "%" : ""
-      foreground: root.foreground
-      fontFamily: root.fontFamily
-    }
+      HistoryGraph {
+        // A card with no utilisation figure would only draw a flat line.
+        visible: gpuCard.hasUtil
+        height: visible ? Style.space(48) : 0
+        width: parent.width
+        series: [Model.gpuHistory(root.hist, Model.gpuId(gpuCard.gpu))]
+        colors: [root.s1]
+        ceiling: 100
+        baselineColor: Util.alpha(root.foreground, 0.14)
+      }
 
-    StatRow {
-      visible: !!(root.gpu && root.gpu.memTotal > 0)
-      label: "Memory"
-      detail: root.gpu && root.gpu.memTotal > 0 ? Model.percentText(root.gpu.memUsed / root.gpu.memTotal * 100) : ""
-      value: root.gpu ? Model.pairText(root.gpu.memUsed, root.gpu.memTotal).replace(/ [A-Z]+$/, "") : ""
-      unit: root.gpu ? Model.bytesParts(root.gpu.memTotal).unit : ""
-      foreground: root.foreground
-      fontFamily: root.fontFamily
-    }
+      StatRow {
+        // The header already names the card when several are listed.
+        label: root.gpuCards.length > 1 ? "Load" : (gpuCard.gpu ? Model.gpuTitle(gpuCard.gpu) : "Processor")
+        // i915/xe publish no busy counter through sysfs, so say so rather
+        // than leaving a bare dash to be read as idle.
+        detail: gpuCard.hasUtil ? "" : "load not reported"
+        dot: root.s1
+        value: gpuCard.hasUtil ? String(Math.round(gpuCard.gpu.util)) : "\u2014"
+        unit: gpuCard.hasUtil ? "%" : ""
+        foreground: root.foreground
+        fontFamily: root.fontFamily
+      }
 
-    StatRow {
-      visible: !!(root.gpu && isFinite(Number(root.gpu.power)) && root.gpu.power !== null)
-      label: "Power"
-      value: root.gpu && root.gpu.power !== null ? String(Math.round(root.gpu.power)) : ""
-      unit: "W"
-      foreground: root.foreground
-      fontFamily: root.fontFamily
+      StatRow {
+        visible: !!(gpuCard.gpu && gpuCard.gpu.memTotal > 0)
+        label: "Memory"
+        detail: gpuCard.gpu && gpuCard.gpu.memTotal > 0 ? Model.percentText(gpuCard.gpu.memUsed / gpuCard.gpu.memTotal * 100) : ""
+        value: gpuCard.gpu ? Model.pairText(gpuCard.gpu.memUsed, gpuCard.gpu.memTotal).replace(/ [A-Z]+$/, "") : ""
+        unit: gpuCard.gpu ? Model.bytesParts(gpuCard.gpu.memTotal).unit : ""
+        foreground: root.foreground
+        fontFamily: root.fontFamily
+      }
+
+      StatRow {
+        visible: !!(gpuCard.gpu && isFinite(Number(gpuCard.gpu.power)) && gpuCard.gpu.power !== null)
+        label: "Power"
+        value: gpuCard.gpu && gpuCard.gpu.power !== null ? String(Math.round(gpuCard.gpu.power)) : ""
+        unit: "W"
+        foreground: root.foreground
+        fontFamily: root.fontFamily
+      }
     }
   }
 

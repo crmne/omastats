@@ -22,15 +22,27 @@ Panel {
   readonly property var configuredModules: Model.parseModules(setting("modules", Model.SETTINGS.modules))
   readonly property bool hasGpu: !!(service && service.hasGpu)
   readonly property bool hasBattery: !!(service && service.hasBattery)
+  // The GPU module expands to one readout per card the user picked, so each
+  // entry carries its own PCI address and bar tag.
+  readonly property var gpuReadouts: Model.selectedGpus(service ? service.snapshot : ({}), barGpus)
   readonly property var barModules: {
     var out = []
     for (var i = 0; i < configuredModules.length; i++) {
       var id = configuredModules[i]
       if (id === "battery" && !hasBattery) continue
-      if (id === "gpu" && !hasGpu) continue
-      out.push(id)
+      if (id === "gpu") {
+        for (var g = 0; g < gpuReadouts.length; g++) {
+          out.push({
+            id: "gpu",
+            gpuId: Model.gpuId(gpuReadouts[g]),
+            label: gpuReadouts.length > 1 ? Model.gpuShort(gpuReadouts[g]) : ""
+          })
+        }
+        continue
+      }
+      out.push({ id: id, gpuId: "", label: "" })
     }
-    return out.length > 0 ? out : ["cpu"]
+    return out.length > 0 ? out : [{ id: "cpu", gpuId: "", label: "" }]
   }
   readonly property var moduleTabs: Model.panelTabs(hasBattery, setting("tabs", Model.SETTINGS.tabs))
   readonly property var panelTabs: moduleTabs.concat(["settings"])
@@ -40,6 +52,7 @@ Panel {
 
   readonly property string disksSource: String(setting("disksSource", Model.SETTINGS.disksSource) || "all")
   readonly property string barSensors: String(setting("barSensors", Model.SETTINGS.barSensors) || "cpu")
+  readonly property string barGpus: String(setting("barGpus", Model.SETTINGS.barGpus) || "all")
   readonly property string barLabels: String(setting("barLabels", Model.SETTINGS.barLabels)).toLowerCase() === "icon" ? "icon" : "text"
 
   property string currentTab: "cpu"
@@ -240,9 +253,11 @@ Panel {
       delegate: UI.BarReadout {
         required property var modelData
         bar: root.bar
-        module: modelData
+        module: modelData.id
+        gpuId: modelData.gpuId
+        shortLabel: modelData.label
         service: root.service
-        mode: root.styleFor(modelData)
+        mode: root.styleFor(modelData.id)
         graphWidth: root.graphWidth
         temperatureUnit: root.temperatureUnit
         disksSource: root.disksSource

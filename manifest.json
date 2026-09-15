@@ -51,6 +51,7 @@
       "showProcesses": true,
       "disksSource": "all",
       "barSensors": "cpu",
+      "barGpus": "all",
       "barLabels": "text"
     },
     "schema": [
@@ -58,7 +59,7 @@
         "key": "modules",
         "type": "string",
         "label": "Bar modules",
-        "description": "Comma-separated, in order: cpu, gpu, memory, disks, network, sensors, battery. Battery and GPU only appear when present.",
+        "description": "Comma-separated, in order: cpu, gpu, memory, disks, network, sensors, battery. Battery and GPU only appear when present; gpu expands to one readout per GPU picked in barGpus.",
         "defaultValue": "cpu,memory,network"
       },
       {
@@ -106,6 +107,13 @@
         "label": "Sensor readouts",
         "description": "Comma-separated: cpu, gpu, or hwmon ids like nct6687/fan1 (pick them on the Settings page).",
         "defaultValue": "cpu"
+      },
+      {
+        "key": "barGpus",
+        "type": "string",
+        "label": "GPU readouts",
+        "description": "Which GPUs get a bar readout: \"all\", \"none\", or comma-separated PCI addresses like 0000:01:00.0 (pick them on the Settings page).",
+        "defaultValue": "all"
       },
       {
         "key": "graphWidth",
