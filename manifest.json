@@ -47,7 +47,7 @@
       "refreshSeconds": 1,
       "historySeconds": 240,
       "publicIp": true,
-      "tabs": "cpu,memory,disks,network,sensors,battery",
+      "tabs": "cpu,gpu,memory,disks,network,sensors,battery",
       "showProcesses": true,
       "disksSource": "all",
       "barSensors": "cpu",
@@ -65,8 +65,8 @@
         "key": "tabs",
         "type": "string",
         "label": "Panel tabs",
-        "description": "Comma-separated tabs shown in the panel: cpu, memory, disks, network, sensors, battery.",
-        "defaultValue": "cpu,memory,disks,network,sensors,battery"
+        "description": "Comma-separated tabs shown in the panel: cpu, gpu, memory, disks, network, sensors, battery.",
+        "defaultValue": "cpu,gpu,memory,disks,network,sensors,battery"
       },
       {
         "key": "style",

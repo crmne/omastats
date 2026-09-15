@@ -17,8 +17,8 @@ OmaStats is an independent project and is not affiliated with Bjango.
 
 | Module  | Bar readout                         | Panel                                                                 |
 |---------|-------------------------------------|-----------------------------------------------------------------------|
-| CPU     | glyph · user/system history · %     | User/system history, per-core rings, load, uptime, GPU, top processes |
-| GPU     | glyph · utilisation history · %     | Shown on the CPU page (NVIDIA via `nvidia-smi`, AMD/Intel via sysfs)  |
+| CPU     | glyph · user/system history · %     | User/system history, per-core rings, load, uptime, top processes       |
+| GPU     | glyph · utilisation history · %     | Its own tab (NVIDIA via `nvidia-smi`, AMD/Intel via sysfs)            |
 | Memory  | glyph · used history · %            | Swap and memory rings, breakdown, processes                           |
 | Disks   | glyph · read/write history · rates  | Volumes (click to open in Files), activity for all disks or one, processes |
 | Network | glyph · up/down history · rates     | Upload/download, interfaces, public and local IPs, traffic per process |
@@ -107,7 +107,7 @@ edited there by hand or through Setup → Plugins:
 | `modules`                 | `cpu,memory,network`                      | Bar readouts, in order: `cpu gpu memory disks network sensors battery` |
 | `style`                   | `both`                                    | Default look of a readout: `graph`, `ring`, `text`, `both` (graph and figure), or `ring-text` |
 | `cpuStyle` … `batteryStyle` | *(inherit)*                             | Per-module override of `style`                            |
-| `tabs`                    | `cpu,memory,disks,network,sensors,battery` | Tabs shown in the panel                                  |
+| `tabs`                    | `cpu,gpu,memory,disks,network,sensors,battery` | Tabs shown in the panel                              |
 | `graphWidth`              | `36`                                      | Width of each mini graph in the bar                       |
 | `barLabels`               | `text`                                    | `text` stacks the module's letters vertically, `icon` uses glyphs |
 | `disksSource`             | `all`                                     | Disk readout and activity graph: `all` or a device like `nvme0n1` |
@@ -117,7 +117,7 @@ edited there by hand or through Setup → Plugins:
 | `historySeconds`          | `240`                                     | How far back the graphs reach, in seconds                 |
 | `publicIp`                | `true`                                    | Look up the public address (api.ipify.org) on the Network page |
 | `showProcesses`           | `true`                                    | Top processes on every page                               |
-| `showCores`, `showLoad`, `showGpu` | `true`                           | CPU page sections                                         |
+| `showCores`, `showLoad`   | `true`                                    | CPU page sections                                         |
 | `showBreakdown`           | `true`                                    | Memory breakdown                                          |
 | `showVolumes`, `showActivity` | `true`                                | Disks page sections                                       |
 | `showInterfaces`, `showTotals`, `showAddresses` | `true`              | Network page sections                                     |
