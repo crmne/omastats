@@ -44,7 +44,7 @@ Panel {
     }
     return out.length > 0 ? out : [{ id: "cpu", gpuId: "", label: "" }]
   }
-  readonly property var moduleTabs: Model.panelTabs(hasBattery, setting("tabs", Model.SETTINGS.tabs), hasGpu)
+  readonly property var moduleTabs: Model.panelTabs(hasBattery, Model.settingValue(settings, "tabs"), hasGpu)
   readonly property var panelTabs: moduleTabs.concat(["settings"])
   readonly property color fg: Color.popups.text
   readonly property string fontFamily: bar ? bar.fontFamily : Style.font.family
@@ -197,6 +197,7 @@ Panel {
   }
 
   function resetSettings() {
+    persist("gpuTabVersion", 1)
     var defaults = Model.SETTINGS
     for (var key in defaults) persist(key, defaults[key])
   }

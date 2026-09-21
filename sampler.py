@@ -448,9 +448,7 @@ class GpuCard:
         self.device = device
         self.slot = pci_slot(device)
         self.name = ""
-        # The adapter the firmware booted on is the built-in one on a hybrid
-        # machine, whatever its vendor. Vendor alone cannot separate an AMD
-        # APU from an AMD discrete card, nor Intel Arc from an Iris iGPU.
+        # The firmware's boot display may be integrated or discrete.
         self.boot_vga = read_text(f"{device}/boot_vga").strip() == "1"
         self.hwmon: str | None = None
         for hw in list_dir(f"{device}/hwmon"):
@@ -458,18 +456,9 @@ class GpuCard:
             break
 
 
-def order_by_role(cards: list[GpuCard]) -> list[GpuCard]:
-    """Discrete cards first, keeping enumeration order within each group."""
-    # boot_vga is the vendor-neutral signal. Where nothing claims it, fall
-    # back to the old assumption that an Intel card is the built-in one.
-    claimed = any(card.boot_vga for card in cards)
-
-    def rank(card: GpuCard) -> int:
-        if claimed:
-            return 1 if card.boot_vga else 0
-        return 1 if card.kind == "intel" else 0
-
-    return sorted(cards, key=rank)
+def order_cards(cards: list[GpuCard]) -> list[GpuCard]:
+    """Boot display first, then stable PCI order without guessing GPU type."""
+    return sorted(cards, key=lambda card: (not card.boot_vga, card.slot))
 
 
 class GpuSampler:
@@ -506,11 +495,8 @@ class GpuSampler:
                     continue
                 seen.add(entry.slot)
                 found.append(entry)
-        # On a hybrid machine the discrete card is the interesting one, so it
-        # leads the list and becomes the default readout; an NVIDIA card with
-        # no nvidia-smi to read it drops out entirely.
-        nvidia_readable = command_path("nvidia-smi") is not None
-        self.cards = order_by_role([c for c in found if c.kind != "nvidia" or nvidia_readable])
+        # Detection survives unavailable telemetry helpers.
+        self.cards = order_cards(found)
         for entry in self.cards:
             entry.name = self._pci_name(entry.slot)
         if any(c.kind == "nvidia" for c in self.cards):
@@ -542,7 +528,6 @@ class GpuSampler:
             )
         except OSError:
             self.proc = None
-            self.cards = [c for c in self.cards if c.kind != "nvidia"]
             return
         threading.Thread(target=self._read_nvidia, daemon=True).start()
 

@@ -106,7 +106,7 @@ function parseList(raw) {
 
 // ------------------------------------------------------------------- gpus
 
-// Every GPU the sampler found, discrete first. Snapshots from an older
+// Every GPU the sampler found, boot display first. Snapshots from an older
 // sampler carry a single "gpu" object, so fall back to that.
 function gpuList(snapshot) {
   var s = snapshot || {}
@@ -138,7 +138,7 @@ function gpuShort(gpu) {
   switch (gpu ? String(gpu.vendor || "").toLowerCase() : "") {
     case "nvidia": return "NVD"
     case "amd": return "AMD"
-    case "intel": return "IGP"
+    case "intel": return "INT"
   }
   return "GPU"
 }
@@ -282,6 +282,17 @@ function filterProcesses(list, query, key) {
 
 function settingValue(settings, key) {
   var value = settings ? settings[key] : undefined
+  if (key === "tabs" && value !== undefined && value !== null
+      && !(settings && Number(settings.gpuTabVersion) >= 1)) {
+    // Before 1.1, GPU details lived on CPU. Preserve access when upgrading a
+    // saved tab list; after the first tab edit, honor explicit GPU choices.
+    var tabs = parseModules(value)
+    if (tabs.indexOf("cpu") !== -1 && tabs.indexOf("gpu") === -1
+        && truthy(settings.showGpu, true)) {
+      tabs.splice(tabs.indexOf("cpu") + 1, 0, "gpu")
+      return tabs.join(",")
+    }
+  }
   return value === undefined || value === null ? SETTINGS[key] : value
 }
 

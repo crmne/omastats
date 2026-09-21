@@ -44,9 +44,7 @@ struct GpuCard {
     slot: String,
     name: String,
     hwmon: Option<String>,
-    /// The adapter the firmware booted on is the built-in one on a hybrid
-    /// machine, whatever its vendor. Vendor alone cannot separate an AMD APU
-    /// from an AMD discrete card, nor Intel Arc from an Iris iGPU.
+    /// The firmware's boot display, which may be integrated or discrete.
     boot_vga: bool,
 }
 
@@ -78,18 +76,12 @@ impl GpuCard {
     }
 }
 
-/// Discrete cards first, keeping enumeration order within each group.
-fn order_by_role(mut cards: Vec<GpuCard>) -> Vec<GpuCard> {
-    // boot_vga is the vendor-neutral signal. Where nothing claims it, fall
-    // back to the old assumption that an Intel card is the built-in one.
-    let claimed = cards.iter().any(|card| card.boot_vga);
-    cards.sort_by_key(|card| {
-        let integrated = if claimed {
-            card.boot_vga
-        } else {
-            card.kind == Kind::Intel
-        };
-        u8::from(integrated)
+/// Boot display first, then stable PCI order without guessing GPU type.
+fn order_cards(mut cards: Vec<GpuCard>) -> Vec<GpuCard> {
+    cards.sort_by(|a, b| {
+        b.boot_vga
+            .cmp(&a.boot_vga)
+            .then_with(|| a.slot.cmp(&b.slot))
     });
     cards
 }
@@ -178,16 +170,8 @@ impl GpuSampler {
             seen.push(entry.slot.clone());
             found.push(entry);
         }
-        // On a hybrid machine the discrete card is the interesting one, so it
-        // leads the list and becomes the default readout; an NVIDIA card with
-        // no nvidia-smi to read it drops out entirely.
-        let nvidia_readable = which("nvidia-smi");
-        self.cards = order_by_role(
-            found
-                .into_iter()
-                .filter(|card| card.kind != Kind::Nvidia || nvidia_readable)
-                .collect(),
-        );
+        // Detection survives unavailable telemetry helpers.
+        self.cards = order_cards(found);
         for card in &mut self.cards {
             card.name = bounded_text(&Self::pci_name(&card.slot), EXTERNAL_TEXT_LIMIT);
         }
@@ -222,15 +206,10 @@ impl GpuSampler {
         String::new()
     }
 
-    fn drop_nvidia(&mut self) {
-        self.cards.retain(|card| card.kind != Kind::Nvidia);
-    }
-
     fn start_nvidia(&mut self) {
         let mut command = match system_command("nvidia-smi") {
             Some(command) => command,
             None => {
-                self.drop_nvidia();
                 return;
             }
         };
@@ -246,7 +225,6 @@ impl GpuSampler {
         let mut child = match child {
             Ok(c) => c,
             Err(_) => {
-                self.drop_nvidia();
                 return;
             }
         };
@@ -255,7 +233,6 @@ impl GpuSampler {
             None => {
                 kill_process_group(child.id());
                 let _ = child.wait();
-                self.drop_nvidia();
                 return;
             }
         };
@@ -342,7 +319,7 @@ impl GpuSampler {
         })
     }
 
-    /// Every detected GPU, discrete first.
+    /// Every detected GPU, boot display first.
     pub fn sample_all(&self) -> Vec<Value> {
         self.cards.iter().map(|c| self.sample_card(c)).collect()
     }
@@ -408,42 +385,44 @@ mod tests {
     }
 
     #[test]
-    fn the_boot_adapter_sorts_last_whatever_its_vendor() {
-        // Intel iGPU enumerating first must not displace the NVIDIA card.
-        let ordered = order_by_role(vec![
+    fn boot_display_can_be_discrete_or_integrated() {
+        let desktop = order_cards(vec![
+            card(Kind::Amd, "0000:10:00.0", false),
+            card(Kind::Nvidia, "0000:01:00.0", true),
+        ]);
+        assert_eq!(slots(&desktop), ["0000:01:00.0", "0000:10:00.0"]);
+        let laptop = order_cards(vec![
+            card(Kind::Nvidia, "0000:01:00.0", false),
             card(Kind::Intel, "0000:00:02.0", true),
-            card(Kind::Nvidia, "0000:01:00.0", false),
         ]);
-        assert_eq!(slots(&ordered), ["0000:01:00.0", "0000:00:02.0"]);
-
-        // Two AMD cards share a vendor id, so only boot_vga separates them.
-        let ordered = order_by_role(vec![
-            card(Kind::Amd, "0000:05:00.0", true),
-            card(Kind::Amd, "0000:03:00.0", false),
-        ]);
-        assert_eq!(slots(&ordered), ["0000:03:00.0", "0000:05:00.0"]);
+        assert_eq!(slots(&laptop), ["0000:00:02.0", "0000:01:00.0"]);
     }
 
     #[test]
-    fn vendor_decides_when_no_card_claims_boot_vga() {
-        let ordered = order_by_role(vec![
-            card(Kind::Intel, "0000:00:02.0", false),
-            card(Kind::Nvidia, "0000:01:00.0", false),
-        ]);
-        assert_eq!(slots(&ordered), ["0000:01:00.0", "0000:00:02.0"]);
-    }
-
-    #[test]
-    fn enumeration_order_survives_within_a_group() {
-        let ordered = order_by_role(vec![
-            card(Kind::Nvidia, "0000:01:00.0", false),
+    fn cards_without_a_boot_display_use_pci_order() {
+        let ordered = order_cards(vec![
             card(Kind::Nvidia, "0000:02:00.0", false),
-            card(Kind::Intel, "0000:00:02.0", true),
+            card(Kind::Intel, "0000:00:02.0", false),
+            card(Kind::Amd, "0000:01:00.0", false),
         ]);
         assert_eq!(
             slots(&ordered),
-            ["0000:01:00.0", "0000:02:00.0", "0000:00:02.0"]
+            ["0000:00:02.0", "0000:01:00.0", "0000:02:00.0"]
         );
+    }
+
+    #[test]
+    fn unavailable_nvidia_still_has_an_identity() {
+        let sampler = GpuSampler {
+            cards: vec![card(Kind::Nvidia, "0000:01:00.0", true)],
+            latest: Arc::new(Mutex::new(HashMap::new())),
+            child: None,
+        };
+        let readings = sampler.sample_all();
+        assert_eq!(readings.len(), 1);
+        assert_eq!(readings[0]["id"], "0000:01:00.0");
+        assert_eq!(readings[0]["vendor"], "nvidia");
+        assert!(readings[0]["util"].is_null());
     }
 
     #[test]

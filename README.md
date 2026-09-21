@@ -26,10 +26,14 @@ OmaStats is an independent project and is not affiliated with Bjango.
 | Battery | glyph by level · %                  | Charge and health rings, charge history, power, cycles, peripherals   |
 
 Battery and GPU only appear when the hardware exists. A machine with more than
-one GPU gets a readout per card, each tagged in the bar (`NVD`, `AMD`, `IGP`);
-the Settings page picks which ones are shown, and a discrete card leads.
+one GPU gets a readout per card, each tagged in the bar (`NVD`, `AMD`, `INT`);
+the Settings page picks which ones appear in the bar. The firmware boot display
+leads, followed by the other cards in PCI address order. The GPU tab always
+shows every detected card, including cards whose telemetry is unavailable.
 Intel's i915/xe drivers publish no utilisation counter through sysfs, so an
-Intel readout carries its clock and temperature and reports no load.
+Intel readout carries its clock and temperature and reports no load. NVIDIA
+cards remain visible when `nvidia-smi` is unavailable. Existing 1.0 tab settings
+keep access to GPU details when upgrading; GPU can then be hidden separately.
 
 ## Install
 

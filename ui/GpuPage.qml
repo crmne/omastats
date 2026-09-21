@@ -106,7 +106,7 @@ Column {
       textFormat: Text.PlainText
       width: parent.width
       text: root.service && root.service.ready
-        ? "No GPU detected. NVIDIA cards need nvidia-smi on PATH."
+        ? "No GPU detected."
         : "Starting the sampler…"
       color: root.foreground
       opacity: 0.6

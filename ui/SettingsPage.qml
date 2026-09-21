@@ -67,7 +67,7 @@ Column {
     return Model.parseList(text)
   }
 
-  // Position in the sampler's order (discrete first), so the bar keeps a
+  // Position in the sampler's order (boot display first), so the bar keeps a
   // stable left-to-right order however the switches are flipped.
   function gpuOrder(id) {
     for (var i = 0; i < gpuOptions.length; i++) if (Model.gpuId(gpuOptions[i]) === id) return i
@@ -117,6 +117,7 @@ Column {
       list.sort(function(a, b) { return Model.PANEL_TABS.indexOf(a) - Model.PANEL_TABS.indexOf(b) })
     }
     if (!enabled && at !== -1) list.splice(at, 1)
+    set("gpuTabVersion", 1)
     set("tabs", list.join(","))
   }
 

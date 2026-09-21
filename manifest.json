@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "crmne.omastats",
   "name": "OmaStats",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "author": "Carmine Paolino",
   "license": "MIT",
   "description": "System monitor for the Omarchy bar: CPU, GPU, memory, disk, network, temperature, fan and battery stats with live graphs and a detailed panel. An iStat Menus-style activity monitor showing the machine's vital signs, configurable from inside the panel.",
