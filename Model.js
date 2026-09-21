@@ -533,13 +533,16 @@ function volumeName(mount) {
 }
 
 function shortGpuName(name) {
-  return String(name || "GPU")
-    .replace(/^NVIDIA\s+/i, "")
-    .replace(/^GeForce\s+/i, "")
-    .replace(/^AMD\s+/i, "")
-    .replace(/^Radeon\s+/i, "")
-    .replace(/^Intel\s+(Corporation\s+)?/i, "")
-    .replace(/\s+Graphics$/i, "")
+  var raw = String(name || "GPU")
+  // Keep the manufacturer so cards remain distinct in multi-GPU views. Drop
+  // only redundant product-family or corporate wording.
+  if (/^(AMD\s+)?Radeon\s+Graphics$/i.test(raw)) return "AMD Radeon Graphics"
+  return raw
+    .replace(/^NVIDIA\s+GeForce\s+/i, "NVIDIA ")
+    .replace(/^GeForce\s+/i, "NVIDIA ")
+    .replace(/^AMD\s+Radeon\s+/i, "AMD ")
+    .replace(/^Radeon\s+/i, "AMD ")
+    .replace(/^Intel\s+Corporation\s+/i, "Intel ")
 }
 
 function batteryIcon(percent, charging) {

@@ -42,7 +42,7 @@ Column {
       foreground: root.foreground
 
       CardHeader {
-        title: gpuCard.gpu ? Model.shortGpuName(gpuCard.gpu.name) : "GPU"
+        title: gpuCard.gpu ? Model.gpuTitle(gpuCard.gpu) : "GPU"
         detail: gpuCard.gpu ? root.headerDetail(gpuCard.gpu.mhz, gpuCard.gpu.temp) : ""
         foreground: root.foreground
         fontFamily: root.fontFamily
