@@ -39,3 +39,10 @@ test("GPU selection and histories stay tied to PCI addresses", () => {
   assert.equal(model.gpuHasUtil({ util: null }), false);
   assert.equal(model.gpuHasUtil({ util: 0 }), true);
 });
+
+test("GPU titles stay concise without erasing generic AMD identity", () => {
+  assert.equal(model.gpuTitle({ vendor: "nvidia", name: "NVIDIA GeForce RTX 3090" }), "NVIDIA RTX 3090");
+  assert.equal(model.gpuTitle({ vendor: "amd", name: "Radeon Graphics" }), "AMD Radeon Graphics");
+  assert.equal(model.gpuTitle({ vendor: "amd", name: "AMD Radeon RX 7900 XTX" }), "AMD RX 7900 XTX");
+  assert.equal(model.gpuTitle({ vendor: "intel", name: "Intel Corporation Arc A770" }), "Intel Arc A770");
+});

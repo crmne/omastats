@@ -185,7 +185,8 @@ The tab strip gives every module an equal slot, the settings gear included, so
 nothing shifts when you switch, and the panel sizes itself so every tab is
 named in full. Abbreviations live only in the bar, where height is scarce:
 the readouts stack the module's letters (CPU, MEM, DSK, NET) the way iStat
-Menus labels its menubar items, unless you prefer glyphs.
+Menus labels its menubar items, with consistent device-pixel spacing between
+letters on scaled displays, unless you prefer glyphs.
 
 ## Packaging maintenance
 
