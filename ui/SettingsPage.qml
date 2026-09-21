@@ -28,6 +28,7 @@ Column {
       if (id === "settings") continue
       if (id === "gpu" && !hasGpu) continue
       if (id === "battery" && !hasBattery) continue
+      if (id === "gpu" && !hasGpu) continue
       out.push(id)
     }
     return out
@@ -44,6 +45,7 @@ Column {
     for (var i = 0; i < Model.PANEL_TABS.length; i++) {
       var id = Model.PANEL_TABS[i]
       if (id === "battery" && !hasBattery) continue
+      if (id === "gpu" && !hasGpu) continue
       out.push(id)
     }
     return out
@@ -73,7 +75,7 @@ Column {
   }
 
   function setBarGpu(id, enabled) {
-    var list = selectedGpuIds.slice()
+    var list = selectedGpuIds.filter(function(id) { return root.gpuOrder(id) < root.gpuOptions.length })
     var at = list.indexOf(id)
     if (enabled && at === -1) {
       list.push(id)

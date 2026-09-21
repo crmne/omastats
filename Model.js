@@ -5,7 +5,7 @@
 
 var MODULES = [
   { id: "cpu",     icon: "󰻠", short: "CPU", label: "CPU",     page: "CpuPage.qml",     graph: true,  ring: true },
-  { id: "gpu",     icon: "󰢮", short: "GPU", label: "GPU",     page: "CpuPage.qml",     graph: true,  ring: true },
+  { id: "gpu",     icon: "󰢮", short: "GPU", label: "GPU",     page: "GpuPage.qml",     graph: true,  ring: true },
   { id: "memory",  icon: "󰍛", short: "MEM", label: "Memory",  page: "MemoryPage.qml",  graph: true,  ring: true },
   { id: "disks",   icon: "󰋊", short: "DSK", label: "Disks",   page: "DisksPage.qml",   graph: true,  ring: true },
   { id: "network", icon: "󰛳", short: "NET", label: "Network", page: "NetworkPage.qml", graph: true,  ring: false },
@@ -14,7 +14,7 @@ var MODULES = [
   { id: "settings", icon: "󰒓", short: "SET", label: "Settings", page: "SettingsPage.qml", graph: false }
 ]
 
-var PANEL_TABS = ["cpu", "memory", "disks", "network", "sensors", "battery"]
+var PANEL_TABS = ["cpu", "gpu", "memory", "disks", "network", "sensors", "battery"]
 
 // Every user-tunable key with its default. Flat keys keep the entry in
 // shell.json readable and editable from Setup → Plugins as well as from the
@@ -33,9 +33,9 @@ var SETTINGS = {
   refreshSeconds: 1,
   historySeconds: 240,
   publicIp: true,
-  tabs: "cpu,memory,disks,network,sensors,battery",
+  tabs: "cpu,gpu,memory,disks,network,sensors,battery",
   showProcesses: true,
-  showCores: true, showLoad: true, showGpu: true,
+  showCores: true, showLoad: true,
   showBreakdown: true,
   showVolumes: true, showActivity: true,
   showInterfaces: true, showTotals: true, showAddresses: true,
@@ -47,8 +47,7 @@ var SETTINGS = {
 var PANEL_SECTIONS = {
   cpu: [
     { key: "showCores", label: "Per-core rings" },
-    { key: "showLoad", label: "Load average and uptime" },
-    { key: "showGpu", label: "GPU" }
+    { key: "showLoad", label: "Load average and uptime" }
   ],
   memory: [
     { key: "showBreakdown", label: "Breakdown" }
@@ -351,9 +350,9 @@ function pageFile(tab) {
   return moduleDef(tab).page
 }
 
-// The panel tab that shows a given bar module (GPU lives on the CPU page).
+// The panel tab that shows a given bar module. Every module has its own.
 function tabFor(module) {
-  return module === "gpu" ? "cpu" : module
+  return module
 }
 
 function parseModules(raw) {
@@ -376,12 +375,13 @@ function parseModules(raw) {
 
 // Module tabs in canonical order, filtered by the "tabs" setting and by the
 // hardware present. Never empty: the CPU tab is the floor.
-function panelTabs(hasBattery, tabsSetting) {
+function panelTabs(hasBattery, tabsSetting, hasGpu) {
   var wanted = parseModules(tabsSetting === undefined ? SETTINGS.tabs : tabsSetting)
   var out = []
   for (var i = 0; i < PANEL_TABS.length; i++) {
     var id = PANEL_TABS[i]
     if (id === "battery" && !hasBattery) continue
+    if (id === "gpu" && !hasGpu) continue
     if (wanted.indexOf(id) === -1) continue
     out.push(id)
   }
