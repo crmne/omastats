@@ -56,8 +56,13 @@ TOOL_DIRS = ("/usr/bin", "/bin")
 def exec_compiled_sampler(args: list[str]) -> None:
     """Replace this process with a compatible bundled or locally built sampler."""
     root = os.path.dirname(os.path.realpath(__file__))
+    # Select before exec: binfmt/QEMU may otherwise run an incompatible ELF
+    # successfully, leaving ARM machines emulating the x86-64 sampler.
+    machine = os.uname().machine.lower()
+    machine = {"amd64": "x86_64", "arm64": "aarch64"}.get(machine, machine)
+    bundled = "omastats-sampler" if machine == "x86_64" else f"omastats-sampler-{machine}"
     candidates = (
-        os.path.join(root, "bin", "omastats-sampler"),
+        os.path.join(root, "bin", bundled),
         os.path.join(root, "sampler", "target", "release", "omastats-sampler"),
     )
     for candidate in candidates:

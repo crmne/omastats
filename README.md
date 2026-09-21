@@ -53,16 +53,19 @@ which `omarchy plugin disable` removes.
 The plugin runs one small sampler process that reads procfs and sysfs. Two
 implementations ship with the same JSON protocol:
 
-- `bin/omastats-sampler` — a Rust binary, x86-64, about 3 MB resident and 0.3% CPU.
-  Built from `sampler/`; run `make` to rebuild it for your machine. Its checksum,
-  byte-for-byte reproducible build, and signed GitHub attestation are documented
-  in [BINARY_PROVENANCE.md](BINARY_PROVENANCE.md).
+- `bin/omastats-sampler` — the Rust binary for x86-64, about 3 MB resident and 0.3% CPU.
+- `bin/omastats-sampler-aarch64` — the Rust binary for ARM64 Linux, statically
+  linked with musl so it does not need a particular glibc version.
+  Both are built from `sampler/`. Their checksums, byte-for-byte reproducible
+  builds, and signed GitHub attestations are documented in
+  [BINARY_PROVENANCE.md](BINARY_PROVENANCE.md).
 - `sampler.py` — a Python 3 fallback used whenever that binary is missing or
   cannot run here (another architecture, for instance). No third-party modules.
 
 The service starts `/usr/bin/python3` in isolated mode with a cleared
-environment. That entry point immediately replaces itself with the Rust binary
-when it can run, retaining the same process ID; otherwise it continues as the
+environment. That entry point selects the Rust binary for the machine's
+architecture and replaces itself with it, retaining the same process ID;
+otherwise it continues as the
 Python sampler. No shell participates in the runtime launch path. Every emitted
 JSON record is capped before it reaches the shell's streaming parser, and the
 sampler is explicitly stopped when the plugin service is destroyed.
@@ -78,9 +81,13 @@ public-IP lookup, which you can switch off in Settings. That lookup tries
 `api.ipify.org`, `icanhazip.com`, then `ifconfig.me` over HTTPS and stops after
 the first valid IP-address response.
 
-`make` builds the binary and checksum into `bin/`; `make verify-binary` performs
-two clean builds and compares them with the bundled artifact. `make install`
-syncs the plugin into the Omarchy plugin directory.
+`make` builds the native binary and checksum into `bin/`. On x86-64 Linux,
+`make build-arm64` builds the portable ARM64 binary using a checksum-pinned
+toolchain downloaded into `.cache/`; it needs Python 3.12+, a C linker and tar,
+and does not change the system toolchain. `make verify-binary` checks two native
+builds against the bundled artifact (using the pinned Arch environment for
+x86-64); `make verify-arm64` does the same for the portable ARM64 build.
+`make install` syncs the plugin into the Omarchy plugin directory.
 
 ## Configuring
 
