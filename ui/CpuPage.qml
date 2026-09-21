@@ -22,7 +22,6 @@ Column {
   readonly property color s3: service ? service.tertiary : Color.accent
 
   readonly property var cpu: snap.cpu || ({})
-  readonly property var gpu: snap.gpu || null
   readonly property var procs: snap.procs || null
   readonly property var cores: Array.isArray(cpu.cores) ? cpu.cores : []
   readonly property var efficiency: Array.isArray(cpu.efficiency) ? cpu.efficiency : []
@@ -157,55 +156,6 @@ Column {
           font.bold: true
         }
       }
-    }
-  }
-
-  Card {
-    visible: !!root.gpu && root.flag("showGpu")
-    foreground: root.foreground
-
-    CardHeader {
-      title: "GPU"
-      detail: root.gpu ? root.headerDetail(root.gpu.mhz, root.gpu.temp) : ""
-      foreground: root.foreground
-      fontFamily: root.fontFamily
-    }
-
-    HistoryGraph {
-      width: parent.width
-      height: Style.space(48)
-      series: [root.hist.gpu || []]
-      colors: [root.s1]
-      ceiling: 100
-      baselineColor: Util.alpha(root.foreground, 0.14)
-    }
-
-    StatRow {
-      label: root.gpu ? Model.shortGpuName(root.gpu.name) : "Processor"
-      dot: root.s1
-      value: root.gpu && isFinite(Number(root.gpu.util)) ? String(Math.round(root.gpu.util)) : "—"
-      unit: root.gpu && isFinite(Number(root.gpu.util)) ? "%" : ""
-      foreground: root.foreground
-      fontFamily: root.fontFamily
-    }
-
-    StatRow {
-      visible: !!(root.gpu && root.gpu.memTotal > 0)
-      label: "Memory"
-      detail: root.gpu && root.gpu.memTotal > 0 ? Model.percentText(root.gpu.memUsed / root.gpu.memTotal * 100) : ""
-      value: root.gpu ? Model.pairText(root.gpu.memUsed, root.gpu.memTotal).replace(/ [A-Z]+$/, "") : ""
-      unit: root.gpu ? Model.bytesParts(root.gpu.memTotal).unit : ""
-      foreground: root.foreground
-      fontFamily: root.fontFamily
-    }
-
-    StatRow {
-      visible: !!(root.gpu && isFinite(Number(root.gpu.power)) && root.gpu.power !== null)
-      label: "Power"
-      value: root.gpu && root.gpu.power !== null ? String(Math.round(root.gpu.power)) : ""
-      unit: "W"
-      foreground: root.foreground
-      fontFamily: root.fontFamily
     }
   }
 

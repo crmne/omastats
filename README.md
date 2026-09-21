@@ -17,15 +17,23 @@ OmaStats is an independent project and is not affiliated with Bjango.
 
 | Module  | Bar readout                         | Panel                                                                 |
 |---------|-------------------------------------|-----------------------------------------------------------------------|
-| CPU     | glyph · user/system history · %     | User/system history, per-core rings, load, uptime, GPU, top processes |
-| GPU     | glyph · utilisation history · %     | Shown on the CPU page (NVIDIA via `nvidia-smi`, AMD/Intel via sysfs)  |
+| CPU     | glyph · user/system history · %     | User/system history, per-core rings, load, uptime, top processes |
+| GPU     | one readout per GPU · history · %   | Its own tab, with a card for every GPU |
 | Memory  | glyph · used history · %            | Swap and memory rings, breakdown, processes                           |
 | Disks   | glyph · read/write history · rates  | Volumes (click to open in Files), activity for all disks or one, processes |
 | Network | glyph · up/down history · rates     | Upload/download, interfaces, public and local IPs, traffic per process |
 | Sensors | any temperatures and fans you pick  | CPU/GPU/fan rings, every hwmon temperature and fan                    |
 | Battery | glyph by level · %                  | Charge and health rings, charge history, power, cycles, peripherals   |
 
-Battery and GPU only appear when the hardware exists.
+Battery and GPU only appear when the hardware exists. A machine with more than
+one GPU gets a readout per card, each tagged in the bar (`NVD`, `AMD`, `INT`);
+the Settings page picks which ones appear in the bar. The firmware boot display
+leads, followed by the other cards in PCI address order. The GPU tab always
+shows every detected card, including cards whose telemetry is unavailable.
+Intel's i915/xe drivers publish no utilisation counter through sysfs, so an
+Intel readout carries its clock and temperature and reports no load. NVIDIA
+cards remain visible when `nvidia-smi` is unavailable. Existing 1.0 tab settings
+keep access to GPU details when upgrading; GPU can then be hidden separately.
 
 ## Install
 
@@ -53,16 +61,19 @@ which `omarchy plugin disable` removes.
 The plugin runs one small sampler process that reads procfs and sysfs. Two
 implementations ship with the same JSON protocol:
 
-- `bin/omastats-sampler` — a Rust binary, x86-64, about 3 MB resident and 0.3% CPU.
-  Built from `sampler/`; run `make` to rebuild it for your machine. Its checksum,
-  byte-for-byte reproducible build, and signed GitHub attestation are documented
-  in [BINARY_PROVENANCE.md](BINARY_PROVENANCE.md).
+- `bin/omastats-sampler` — the Rust binary for x86-64, about 3 MB resident and 0.3% CPU.
+- `bin/omastats-sampler-aarch64` — the Rust binary for ARM64 Linux, statically
+  linked with musl so it does not need a particular glibc version.
+  Both are built from `sampler/`. Their checksums, byte-for-byte reproducible
+  builds, and signed GitHub attestations are documented in
+  [BINARY_PROVENANCE.md](BINARY_PROVENANCE.md).
 - `sampler.py` — a Python 3 fallback used whenever that binary is missing or
   cannot run here (another architecture, for instance). No third-party modules.
 
 The service starts `/usr/bin/python3` in isolated mode with a cleared
-environment. That entry point immediately replaces itself with the Rust binary
-when it can run, retaining the same process ID; otherwise it continues as the
+environment. That entry point selects the Rust binary for the machine's
+architecture and replaces itself with it, retaining the same process ID;
+otherwise it continues as the
 Python sampler. No shell participates in the runtime launch path. Every emitted
 JSON record is capped before it reaches the shell's streaming parser, and the
 sampler is explicitly stopped when the plugin service is destroyed.
@@ -78,9 +89,13 @@ public-IP lookup, which you can switch off in Settings. That lookup tries
 `api.ipify.org`, `icanhazip.com`, then `ifconfig.me` over HTTPS and stops after
 the first valid IP-address response.
 
-`make` builds the binary and checksum into `bin/`; `make verify-binary` performs
-two clean builds and compares them with the bundled artifact. `make install`
-syncs the plugin into the Omarchy plugin directory.
+`make` builds the native binary and checksum into `bin/`. On x86-64 Linux,
+`make build-arm64` builds the portable ARM64 binary using a checksum-pinned
+toolchain downloaded into `.cache/`; it needs Python 3.12+, a C linker and tar,
+and does not change the system toolchain. `make verify-binary` checks two native
+builds against the bundled artifact (using the pinned Arch environment for
+x86-64); `make verify-arm64` does the same for the portable ARM64 build.
+`make install` syncs the plugin into the Omarchy plugin directory.
 
 ## Configuring
 
@@ -107,17 +122,18 @@ edited there by hand or through Setup → Plugins:
 | `modules`                 | `cpu,memory,network`                      | Bar readouts, in order: `cpu gpu memory disks network sensors battery` |
 | `style`                   | `both`                                    | Default look of a readout: `graph`, `ring`, `text`, `both` (graph and figure), or `ring-text` |
 | `cpuStyle` … `batteryStyle` | *(inherit)*                             | Per-module override of `style`                            |
-| `tabs`                    | `cpu,memory,disks,network,sensors,battery` | Tabs shown in the panel                                  |
+| `tabs`                    | `cpu,gpu,memory,disks,network,sensors,battery` | Tabs shown in the panel                              |
 | `graphWidth`              | `36`                                      | Width of each mini graph in the bar                       |
 | `barLabels`               | `text`                                    | `text` stacks the module's letters vertically, `icon` uses glyphs |
 | `disksSource`             | `all`                                     | Disk readout and activity graph: `all` or a device like `nvme0n1` |
 | `barSensors`              | `cpu`                                     | Sensor readouts: `cpu`, `gpu`, or hwmon ids like `nct6687/fan1` |
+| `barGpus`                 | `all`                                     | Which GPUs get a readout: `all`, `none`, or PCI addresses like `0000:01:00.0` (pick them on the Settings page) |
 | `temperatureUnit`         | `Celsius`                                 | `Celsius` or `Fahrenheit`                                 |
 | `refreshSeconds`          | `1`                                       | Sampling interval: 0.1, 0.2, 0.5, 1, 2, 5 or 10           |
 | `historySeconds`          | `240`                                     | How far back the graphs reach, in seconds                 |
 | `publicIp`                | `true`                                    | Look up the public address (api.ipify.org) on the Network page |
 | `showProcesses`           | `true`                                    | Top processes on every page                               |
-| `showCores`, `showLoad`, `showGpu` | `true`                           | CPU page sections                                         |
+| `showCores`, `showLoad`   | `true`                                    | CPU page sections                                         |
 | `showBreakdown`           | `true`                                    | Memory breakdown                                          |
 | `showVolumes`, `showActivity` | `true`                                | Disks page sections                                       |
 | `showInterfaces`, `showTotals`, `showAddresses` | `true`              | Network page sections                                     |
@@ -135,7 +151,7 @@ Several instances are allowed, so modules can be spread across the bar:
 
 - **Left click** a readout opens its page; clicking the same readout again closes the panel.
 - **Right click** launches `btop`. **Middle click** refreshes the public IP.
-- In the panel: `h`/`l` or `←`/`→` switch tabs, `1`–`6` jump to a tab, `s` opens
+- In the panel: `h`/`l` or `←`/`→` switch tabs, `1`–`7` jump to a tab, `s` opens
   Settings, `/` searches processes, `j`/`k` scroll, `Tab` moves to the neighbouring
   bar panel, `Esc` closes, `r` refreshes.
 - Addresses on the Network page copy to the clipboard when clicked. Volumes on

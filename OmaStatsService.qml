@@ -36,7 +36,8 @@ Item {
   readonly property color danger: palette.danger
   readonly property color good: palette.good
 
-  readonly property bool hasGpu: !!(snapshot && snapshot.gpu)
+  readonly property var gpus: Model.gpuList(snapshot)
+  readonly property bool hasGpu: gpus.length > 0
   readonly property bool hasBattery: !!(snapshot && snapshot.battery && snapshot.battery.present)
   // The isolated Python entry point immediately execs the compiled sampler
   // when it is compatible, otherwise it remains the fallback implementation.
@@ -58,9 +59,18 @@ Item {
     var net = data.net || {}
     var disks = data.disks || {}
     var gpu = data.gpu
+    var gpuList = Model.gpuList(data)
     var battery = data.battery
     var memPercent = mem.total > 0 ? mem.used / mem.total * 100 : 0
     var perDisk = disks.perDisk || {}
+    // One utilisation series per card, keyed by PCI address, so a readout
+    // keeps its own graph when the bar shows several GPUs.
+    var gpuHistory = {}
+    for (var gi = 0; gi < gpuList.length; gi++) {
+      var gpuKey = Model.gpuId(gpuList[gi]) || String(gi)
+      var previousGpu = h.gpus && h.gpus[gpuKey] ? h.gpus[gpuKey] : []
+      gpuHistory[gpuKey] = Model.pushHistory(previousGpu, Model.gpuHasUtil(gpuList[gi]) ? gpuList[gi].util : 0, n)
+    }
     var diskHistory = {}
     for (var name in perDisk) {
       var previous = h.disks && h.disks[name] ? h.disks[name] : { read: [], write: [] }
@@ -75,6 +85,7 @@ Item {
       cpuSystem: Model.pushHistory(h.cpuSystem, cpu.system, n),
       cpuTotal: Model.pushHistory(h.cpuTotal, cpu.total, n),
       gpu: Model.pushHistory(h.gpu, gpu && isFinite(Number(gpu.util)) ? gpu.util : 0, n),
+      gpus: gpuHistory,
       memUsed: Model.pushHistory(h.memUsed, memPercent, n),
       memPressure: Model.pushHistory(h.memPressure, mem.pressureSome, n),
       netRx: Model.pushHistory(h.netRx, net.rx, n),

@@ -3,13 +3,49 @@ name: Release
 on:
   push:
     tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing stable tag to publish
+        required: true
+        type: string
 
 permissions:
-  contents: write
+  contents: read
+  id-token: write
+  attestations: write
+
+concurrency:
+  group: release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
 
 jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ inputs.tag || github.ref_name }}
+          fetch-depth: 0
+      - name: Validate stable tag and source versions
+        env:
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          test "$(git rev-parse HEAD)" = "$(git rev-parse "refs/tags/$TAG^{commit}")"
+          git merge-base --is-ancestor HEAD origin/main
+          python3 scripts/check-release.py "$TAG"
+          test -f ".github/release-notes/$TAG.md"
+
+  verify:
+    needs: validate
+    uses: ./.github/workflows/verify-binary.yml
+    with:
+      ref: ${{ inputs.tag || github.ref_name }}
+
   build:
-    if: "!contains(github.ref_name, '-')"
+    needs: [validate, verify]
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -20,33 +56,38 @@ jobs:
           - os: ubuntu-24.04-arm
             target: aarch64-unknown-linux-gnu
     steps:
-      - uses: actions/checkout@v4
-      - uses: ruby/setup-ruby@v1
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ inputs.tag || github.ref_name }}
+      - uses: ruby/setup-ruby@a0102e0972be65f351c307e2d64b9314a57c8073
         with:
           ruby-version: '4.0'
       - name: Install packaging CLI
         run: gem install native-packages --version 0.5.1 --no-document
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87
         with:
+          toolchain: 1.98.0
           targets: ${{ matrix.target }}
-      - name: Validate tag and test
+      - name: Validate version and test native build
         env:
-          VERSION: ${{ github.ref_name }}
+          VERSION: ${{ inputs.tag || github.ref_name }}
         run: |
+          set -euo pipefail
           native-packages check-version "$VERSION"
           cargo test --locked --manifest-path sampler/Cargo.toml
       - name: Build release binary
         run: cargo build --locked --release --manifest-path sampler/Cargo.toml --target ${{ matrix.target }}
-      - name: Archive release payload
+      - name: Archive native sampler
         env:
-          VERSION: ${{ github.ref_name }}
+          VERSION: ${{ inputs.tag || github.ref_name }}
           TARGET: ${{ matrix.target }}
         run: |
+          set -euo pipefail
           name="omastats-sampler-$VERSION-$TARGET"
           mkdir -p "dist/$name"
           cp "sampler/target/$TARGET/release/omastats-sampler" README.md LICENSE "dist/$name/"
           tar -czf "dist/$name.tar.gz" -C dist "$name"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: binary-${{ matrix.target }}
           path: dist/*.tar.gz
@@ -54,29 +95,43 @@ jobs:
 
   release:
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ inputs.tag || github.ref_name }}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           pattern: binary-*
           path: dist
           merge-multiple: true
-      - name: Publish binary archives
+      - name: Archive the full plugin and checksum release files
+        env:
+          VERSION: ${{ inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          git archive --format=tar.gz --prefix="omastats-$VERSION/" --output="dist/omastats-$VERSION.tar.gz" HEAD
+          (cd dist && sha256sum *.tar.gz > checksums.txt)
+      - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ github.ref_name }}
+          VERSION: ${{ inputs.tag || github.ref_name }}
         run: |
-          (cd dist && sha256sum *.tar.gz > checksums.txt)
+          set -euo pipefail
           if gh release view "$VERSION" >/dev/null 2>&1; then
-            gh release upload "$VERSION" dist/* --clobber
+            echo "Release already exists; leaving its assets unchanged."
           else
-            gh release create "$VERSION" dist/* --verify-tag --generate-notes
+            gh release create "$VERSION" dist/* --verify-tag --title "OmaStats ${VERSION#v}" \
+              --notes-file ".github/release-notes/$VERSION.md"
           fi
 
   packaging:
     needs: release
+    permissions:
+      contents: write
     uses: ./.github/workflows/packaging.yml
     with:
-      version: ${{ github.ref_name }}
+      version: ${{ inputs.tag || github.ref_name }}
     secrets: inherit

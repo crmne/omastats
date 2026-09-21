@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "crmne.omastats",
   "name": "OmaStats",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "author": "Carmine Paolino",
   "license": "MIT",
   "description": "System monitor for the Omarchy bar: CPU, GPU, memory, disk, network, temperature, fan and battery stats with live graphs and a detailed panel. An iStat Menus-style activity monitor showing the machine's vital signs, configurable from inside the panel.",
@@ -47,10 +47,11 @@
       "refreshSeconds": 1,
       "historySeconds": 240,
       "publicIp": true,
-      "tabs": "cpu,memory,disks,network,sensors,battery",
+      "tabs": "cpu,gpu,memory,disks,network,sensors,battery",
       "showProcesses": true,
       "disksSource": "all",
       "barSensors": "cpu",
+      "barGpus": "all",
       "barLabels": "text"
     },
     "schema": [
@@ -58,15 +59,15 @@
         "key": "modules",
         "type": "string",
         "label": "Bar modules",
-        "description": "Comma-separated, in order: cpu, gpu, memory, disks, network, sensors, battery. Battery and GPU only appear when present.",
+        "description": "Comma-separated, in order: cpu, gpu, memory, disks, network, sensors, battery. Battery and GPU only appear when present; gpu expands to one readout per GPU picked in barGpus.",
         "defaultValue": "cpu,memory,network"
       },
       {
         "key": "tabs",
         "type": "string",
         "label": "Panel tabs",
-        "description": "Comma-separated tabs shown in the panel: cpu, memory, disks, network, sensors, battery.",
-        "defaultValue": "cpu,memory,disks,network,sensors,battery"
+        "description": "Comma-separated tabs shown in the panel: cpu, gpu, memory, disks, network, sensors, battery.",
+        "defaultValue": "cpu,gpu,memory,disks,network,sensors,battery"
       },
       {
         "key": "style",
@@ -106,6 +107,13 @@
         "label": "Sensor readouts",
         "description": "Comma-separated: cpu, gpu, or hwmon ids like nct6687/fan1 (pick them on the Settings page).",
         "defaultValue": "cpu"
+      },
+      {
+        "key": "barGpus",
+        "type": "string",
+        "label": "GPU readouts",
+        "description": "Which GPUs get a bar readout: \"all\", \"none\", or comma-separated PCI addresses like 0000:01:00.0 (pick them on the Settings page).",
+        "defaultValue": "all"
       },
       {
         "key": "graphWidth",

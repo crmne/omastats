@@ -5,6 +5,12 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+  workflow_call:
+    inputs:
+      ref:
+        type: string
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -26,6 +32,11 @@ jobs:
     steps:
       - name: Check out the exact source commit
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+
+      - id: source
+        run: echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
       - name: Install the dated, signed Arch build environment
         shell: bash
@@ -50,6 +61,8 @@ jobs:
           set -euo pipefail
           cargo test --locked --manifest-path sampler/Cargo.toml --target-dir /tmp/omastats-tests
           cargo clippy --locked --manifest-path sampler/Cargo.toml --target-dir /tmp/omastats-clippy -- -D warnings
+          python scripts/test-launcher.py
+          python scripts/test-gpu.py
           python - <<'PY'
           from pathlib import Path
           import json
@@ -96,6 +109,16 @@ jobs:
           sha256sum --check --strict bin/omastats-sampler.sha256
           /tmp/omastats-build-a/release/omastats-sampler --once | python -c 'import json, sys; raw = sys.stdin.buffer.readline(); payload = json.loads(raw); assert payload["seq"] == 0; assert len(raw) <= 512 * 1024 + 1'
 
+      - name: Rebuild ARM64 twice and compare with the bundled ELF
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/build-arm64.py --target-dir /tmp/omastats-arm64-a
+          python scripts/build-arm64.py --target-dir /tmp/omastats-arm64-b
+          cmp /tmp/omastats-arm64-a/aarch64-unknown-linux-musl/release/omastats-sampler /tmp/omastats-arm64-b/aarch64-unknown-linux-musl/release/omastats-sampler
+          cmp /tmp/omastats-arm64-a/aarch64-unknown-linux-musl/release/omastats-sampler bin/omastats-sampler-aarch64
+          sha256sum --check --strict bin/omastats-sampler-aarch64.sha256
+
       - name: Write the verification report
         shell: bash
         env:
@@ -104,12 +127,16 @@ jobs:
           set -euo pipefail
           {
             echo 'format=omastats-binary-provenance-v1'
-            echo "source_commit=$GITHUB_SHA"
+            echo "source_commit=$(git rev-parse HEAD)"
             echo "source_date_epoch=$SOURCE_DATE_EPOCH"
             echo "builder_image=$BUILDER_IMAGE"
             echo "rustflags=$RUSTFLAGS"
             echo "cargo_lock_sha256=$(sha256sum sampler/Cargo.lock | cut -d' ' -f1)"
             echo "binary_sha256=$(sha256sum bin/omastats-sampler | cut -d' ' -f1)"
+            echo "arm64_binary_sha256=$(sha256sum bin/omastats-sampler-aarch64 | cut -d' ' -f1)"
+            echo 'arm64_target=aarch64-unknown-linux-musl'
+            echo "arm64_builder_sha256=$(sha256sum scripts/build-arm64.py | cut -d' ' -f1)"
+            .cache/arm64-toolchain/toolchain/bin/rustc --version --verbose
             echo 'verified_reproducible_builds=2'
             echo 'verified_bundled_binary=true'
             pacman -Q rust gcc gcc-libs binutils glibc git python
@@ -122,12 +149,58 @@ jobs:
         with:
           subject-path: |
             bin/omastats-sampler
+            bin/omastats-sampler-aarch64
             binary-provenance.txt
 
       - name: Upload the verification report
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: binary-provenance-${{ github.sha }}
+          name: binary-provenance-${{ steps.source.outputs.commit }}
           path: binary-provenance.txt
           if-no-files-found: error
           retention-days: 90
+
+  arm64-runtime:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+      - run: node --test scripts/test-model.cjs
+      - name: Test the bundled binary on native ARM64
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = aarch64
+          sha256sum --check --strict bin/omastats-sampler-aarch64.sha256
+          python3 scripts/test-launcher.py
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          import subprocess
+
+          process = subprocess.Popen(
+              ["/usr/bin/python3", "-I", "sampler.py", "--interval", "0.1"],
+              env={"LANG": "C.UTF-8", "LC_ALL": "C.UTF-8"},
+              stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+          )
+          try:
+              for seq in range(3):
+                  record = process.stdout.readline()
+                  assert len(record) <= 512 * 1024 + 1
+                  assert json.loads(record)["seq"] == seq
+              assert Path(f"/proc/{process.pid}/exe").resolve() == Path("bin/omastats-sampler-aarch64").resolve()
+              process.stdin.write(b"quit\n")
+              process.stdin.flush()
+              process.wait(timeout=5)
+              assert process.returncode == 0
+              assert process.stderr.read() == b""
+          finally:
+              if process.poll() is None:
+                  process.kill()
+                  process.wait()
+          PY

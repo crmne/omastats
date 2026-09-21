@@ -54,3 +54,25 @@ pin together. Applications need no packaging Gemfile, lockfile or Ruby wrapper.
 
 This packages the native `omastats-sampler` executable. The full desktop plugin
 installation and fallback sampler retain their existing installation paths.
+
+## Releasing OmaStats
+
+Keep `manifest.json`, `sampler/Cargo.toml`, and the sampler entry in
+`sampler/Cargo.lock` at the same version. Rebuild and verify both bundled
+executables using `make build`, `make verify-binary` on the pinned x86-64
+Arch toolchain, and `make build-arm64`, `make verify-arm64`. Add release notes
+under `.github/release-notes/v<VERSION>.md` and run
+`python3 scripts/check-release.py v<VERSION>`.
+
+After the release commit is on `main` and CI passes, push a stable `vX.Y.Z`
+tag. The Release workflow verifies the tag and all version files, runs the
+reproducible-binary and ARM64 runtime checks, builds native sampler archives,
+and publishes a complete plugin archive plus checksums and release notes.
+The packaging workflow then adds the amd64/arm64 DEB and RPM packages.
+A manual Release dispatch can retry an existing tag without replacing
+published binary archives.
+
+The complete plugin archive contains the verified bundled executables.
+Standalone GNU/Linux sampler archives are built on Ubuntu 24.04 for packaging
+with glibc 2.39 compatibility; their checksums are published separately from
+the bundled binaries' provenance.
