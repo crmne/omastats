@@ -28,6 +28,7 @@ var SETTINGS = {
   barLabels: "text",
   disksSource: "all",
   barSensors: "cpu",
+  barGpus: "all",
   temperatureUnit: "Celsius",
   refreshSeconds: 1,
   historySeconds: 240,
@@ -104,6 +105,64 @@ function parseList(raw) {
   return out
 }
 
+// ------------------------------------------------------------------- gpus
+
+// Every GPU the sampler found, discrete first. Snapshots from an older
+// sampler carry a single "gpu" object, so fall back to that.
+function gpuList(snapshot) {
+  var s = snapshot || {}
+  if (Array.isArray(s.gpus)) return s.gpus
+  return s.gpu ? [s.gpu] : []
+}
+
+function gpuId(gpu) {
+  return gpu && gpu.id !== undefined && gpu.id !== null ? String(gpu.id) : ""
+}
+
+// The GPUs the bar and the CPU page show: "all" (or nothing set) means every
+// one, otherwise the PCI addresses picked on the Settings page, in that order.
+function selectedGpus(snapshot, raw) {
+  var all = gpuList(snapshot)
+  var text = String(raw === undefined || raw === null ? SETTINGS.barGpus : raw).trim()
+  if (!text || text.toLowerCase() === "all") return all
+  if (text.toLowerCase() === "none") return []
+  var ids = parseList(text)
+  var out = []
+  for (var i = 0; i < ids.length; i++) {
+    for (var j = 0; j < all.length; j++) if (gpuId(all[j]) === ids[i]) out.push(all[j])
+  }
+  return out
+}
+
+// Short bar tag. Several GPUs in the bar would otherwise all read "GPU".
+function gpuShort(gpu) {
+  switch (gpu ? String(gpu.vendor || "").toLowerCase() : "") {
+    case "nvidia": return "NVD"
+    case "amd": return "AMD"
+    case "intel": return "IGP"
+  }
+  return "GPU"
+}
+
+// Row label on the panel and the Settings page.
+function gpuTitle(gpu) {
+  return shortGpuName(gpu ? gpu.name : "") || gpuShort(gpu)
+}
+
+// Per-GPU utilisation history, falling back to the single-GPU series.
+function gpuHistory(history, id) {
+  var h = history || {}
+  var key = String(id || "")
+  if (h.gpus && h.gpus[key]) return h.gpus[key]
+  return h.gpu || []
+}
+
+// Whether a card reports a utilisation figure at all. i915/xe expose none
+// without the perf PMU, so an Intel readout carries clock and temperature.
+function gpuHasUtil(gpu) {
+  return !!gpu && gpu.util !== null && gpu.util !== undefined && isFinite(Number(gpu.util))
+}
+
 // ---------------------------------------------------------------- sensors
 
 // Friendly row label for a hwmon temperature entry.
@@ -124,8 +183,17 @@ function sensorOptions(snapshot) {
   var sensors = s.sensors || {}
   var out = []
   if (isFinite(Number(cpu.temp)) && cpu.temp !== null) out.push({ value: "cpu", label: "CPU temperature", kind: "temp" })
+  var gpus = gpuList(s)
   var gpuTemp = gpu && gpu.temp !== null && isFinite(Number(gpu.temp)) ? gpu.temp : sensors.gpuTemp
-  if (gpuTemp !== null && gpuTemp !== undefined && isFinite(Number(gpuTemp))) out.push({ value: "gpu", label: "GPU temperature", kind: "temp" })
+  if (gpuTemp !== null && gpuTemp !== undefined && isFinite(Number(gpuTemp))) {
+    out.push({ value: "gpu", label: gpus.length > 1 ? "GPU temperature (first)" : "GPU temperature", kind: "temp" })
+  }
+  if (gpus.length > 1) {
+    for (var g = 0; g < gpus.length; g++) {
+      if (!isFinite(Number(gpus[g].temp)) || gpus[g].temp === null) continue
+      out.push({ value: "gpu:" + gpuId(gpus[g]), label: gpuTitle(gpus[g]) + " temperature", kind: "temp" })
+    }
+  }
   var temps = Array.isArray(sensors.temps) ? sensors.temps : []
   for (var i = 0; i < temps.length; i++) out.push({ value: String(temps[i].id), label: sensorLabel(temps[i]), kind: "temp" })
   var fans = Array.isArray(sensors.fans) ? sensors.fans : []
@@ -143,6 +211,14 @@ function sensorReading(snapshot, id, unit) {
     if (!(isFinite(Number(cpu.temp)) && cpu.temp !== null)) return null
     var c = tempParts(cpu.temp, unit)
     return { icon: "󰻠", short: "CPU", label: "CPU", text: c.value, unit: c.unit, kind: "temp", celsius: cpu.temp }
+  }
+  if (id.indexOf("gpu:") === 0) {
+    var picked = null
+    var list = gpuList(s)
+    for (var p = 0; p < list.length; p++) if (gpuId(list[p]) === id.slice(4)) picked = list[p]
+    if (!picked || !isFinite(Number(picked.temp)) || picked.temp === null) return null
+    var pt = tempParts(picked.temp, unit)
+    return { icon: "󰢮", short: gpuShort(picked), label: gpuTitle(picked), text: pt.value, unit: pt.unit, kind: "temp", celsius: picked.temp }
   }
   if (id === "gpu") {
     var gpuTemp = gpu && gpu.temp !== null && isFinite(Number(gpu.temp)) ? gpu.temp : sensors.gpuTemp
@@ -405,6 +481,14 @@ function freqText(mhz) {
   return m >= 1000 ? (m / 1000).toFixed(2) + " GHz" : Math.round(m) + " MHz"
 }
 
+// Bar-width-friendly clock, shown instead of a load figure by a card that
+// reports no utilisation.
+function compactFreq(mhz) {
+  var m = Number(mhz)
+  if (!isFinite(m) || m <= 0) return "\u2014"
+  return m >= 1000 ? (m / 1000).toFixed(1) + "G" : Math.round(m) + "M"
+}
+
 function uptimeText(seconds) {
   var s = Math.max(0, Math.floor(Number(seconds) || 0))
   var d = Math.floor(s / 86400)
@@ -482,7 +566,7 @@ function linkSpeedText(iface) {
 
 function emptyHistory() {
   return {
-    cpuUser: [], cpuSystem: [], cpuTotal: [], gpu: [],
+    cpuUser: [], cpuSystem: [], cpuTotal: [], gpu: [], gpus: {},
     memUsed: [], memPressure: [],
     netRx: [], netTx: [], diskRead: [], diskWrite: [], disks: {},
     battery: [], batteryCharging: []
