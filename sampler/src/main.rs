@@ -22,6 +22,7 @@ mod disks;
 mod gpu;
 mod mem;
 mod net;
+mod pm;
 mod procs;
 mod sensors;
 mod util;

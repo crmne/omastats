@@ -3,6 +3,8 @@
 
 from pathlib import Path
 from types import SimpleNamespace
+import os
+import tempfile
 import unittest
 from unittest.mock import patch
 
@@ -45,6 +47,41 @@ class GpuTests(unittest.TestCase):
                 self.assertIsNone(cards[0]["util"])
             finally:
                 sampler.stop()
+
+
+class RuntimePmTests(unittest.TestCase):
+    def card(self, control: str, status: str) -> tuple[Path, str]:
+        """A fake amdgpu PCI device with runtime PM files and one attribute."""
+        root = tempfile.TemporaryDirectory()
+        self.addCleanup(root.cleanup)
+        device = Path(root.name) / "0000:3b:00.0"
+        (device / "power").mkdir(parents=True)
+        (Path(root.name) / "amdgpu").mkdir()
+        os.symlink(Path(root.name) / "amdgpu", device / "driver")
+        (device / "power/control").write_text(f"{control}\n")
+        (device / "power/runtime_status").write_text(f"{status}\n")
+        (device / "power/autosuspend_delay_ms").write_text("5000\n")
+        (device / "gpu_busy_percent").write_text("37\n")
+        return device, str(device / "gpu_busy_percent")
+
+    def test_an_awake_card_repeats_its_last_reading(self):
+        device, busy = self.card("auto", "active")
+        gate = NAMESPACE["RuntimePmGate"]()
+        self.assertEqual(gate.read(str(device), busy, 100.0), "37")
+        (device / "gpu_busy_percent").write_text("80\n")
+        self.assertEqual(gate.read(str(device), busy, 100.1), "80")  # same pass
+        (device / "gpu_busy_percent").write_text("90\n")
+        self.assertEqual(gate.read(str(device), busy, 101.0), "80")
+        self.assertEqual(gate.read(str(device), busy, 105.9), "80")
+        self.assertEqual(gate.read(str(device), busy, 106.0), "90")
+
+    def test_a_suspended_or_always_on_card_is_read_every_time(self):
+        for control, status in (("auto", "suspended"), ("on", "active")):
+            device, busy = self.card(control, status)
+            gate = NAMESPACE["RuntimePmGate"]()
+            self.assertEqual(gate.read(str(device), busy, 100.0), "37")
+            (device / "gpu_busy_percent").write_text("80\n")
+            self.assertEqual(gate.read(str(device), busy, 101.0), "80")
 
 
 if __name__ == "__main__":
