@@ -27,6 +27,7 @@ var SETTINGS = {
   graphWidth: 36,
   barLabels: "text",
   disksSource: "all",
+  barDisks: "",
   barSensors: "cpu",
   barGpus: "all",
   temperatureUnit: "Celsius",
@@ -260,6 +261,90 @@ function diskOptions(snapshot) {
   return out
 }
 
+// What a disk readout reports: transfer speed, space used, or both.
+var DISK_SHOWS = [
+  { value: "speed", label: "Speed" },
+  { value: "used", label: "Used" },
+  { value: "both", label: "Both" }
+]
+
+function normalizeDiskShow(value) {
+  var show = String(value || "").toLowerCase()
+  if (show === "activity" || show === "rate" || show === "rates" || show === "io") show = "speed"
+  if (show === "space" || show === "usage" || show === "capacity") show = "used"
+  for (var i = 0; i < DISK_SHOWS.length; i++) if (DISK_SHOWS[i].value === show) return show
+  return ""
+}
+
+// The bar's disk readouts as [{disk, show}]. "barDisks" lists entries like
+// "all:speed,nvme0n1:both"; "none" means no readout. Unset, it reproduces the
+// 1.1 readout: one for disksSource, showing capacity when the disk look was
+// a ring and transfer speed otherwise.
+function barDisks(settings) {
+  var raw = String(settingValue(settings, "barDisks") || "").trim()
+  if (raw.toLowerCase() === "none") return []
+  if (!raw) {
+    var style = moduleStyle(settings, "disks")
+    return [{
+      disk: String(settingValue(settings, "disksSource") || "all").trim() || "all",
+      show: style === "ring" || style === "ring-text" ? "used" : "speed"
+    }]
+  }
+  var out = []
+  var seen = []
+  var parts = parseList(raw)
+  for (var i = 0; i < parts.length; i++) {
+    var at = parts[i].indexOf(":")
+    var disk = at === -1 ? parts[i] : parts[i].slice(0, at)
+    if (disk.toLowerCase() === "all") disk = "all"
+    if (!disk || seen.indexOf(disk) !== -1) continue
+    seen.push(disk)
+    out.push({ disk: disk, show: normalizeDiskShow(at === -1 ? "" : parts[i].slice(at + 1)) || "speed" })
+  }
+  return out
+}
+
+function barDisksText(list) {
+  if (!list || list.length === 0) return "none"
+  return list.map(function(entry) { return entry.disk + ":" + entry.show }).join(",")
+}
+
+// Bar tag for a disk readout when several share the bar: nvme0n1 -> NV0,
+// sda -> SDA, mmcblk0 -> MC0.
+function diskShort(disk) {
+  var name = String(disk || "")
+  if (!name || name === "all") return "DSK"
+  var m = name.match(/^nvme(\d+)n\d+$/)
+  if (m) return "NV" + m[1]
+  m = name.match(/^mmcblk(\d+)$/)
+  if (m) return "MC" + m[1]
+  return name.replace(/[^A-Za-z0-9]/g, "").slice(0, 3).toUpperCase() || "DSK"
+}
+
+// Space used on one disk, or on every local disk for "all", summed over its
+// mounted volumes: {used, size, fraction}. Network mounts have no block
+// device behind them, so they only count if nothing local is mounted.
+function diskUsage(snapshot, disk) {
+  var disks = (snapshot || {}).disks || {}
+  var perDisk = disks.perDisk || {}
+  var volumes = Array.isArray(disks.volumes) ? disks.volumes : []
+  var used = 0
+  var size = 0
+  for (var i = 0; i < volumes.length; i++) {
+    var v = volumes[i]
+    if (disk === "all" ? !perDisk[v.disk] : v.disk !== disk) continue
+    used += num(v.used)
+    size += num(v.size)
+  }
+  if (size <= 0 && disk === "all") {
+    for (var j = 0; j < volumes.length; j++) {
+      used += num(volumes[j].used)
+      size += num(volumes[j].size)
+    }
+  }
+  return { used: used, size: size, fraction: size > 0 ? clamp(used / size, 0, 1) : 0 }
+}
+
 // ------------------------------------------------------------- processes
 
 function processSortValue(item, key) {
@@ -326,6 +411,15 @@ function normalizeStyle(value) {
 function styleOptions(module) {
   var def = moduleDef(module)
   var out = []
+  // Disk readouts pick speed or space per disk: speed draws a graph and
+  // space a ring, so the look only chooses between picture and figure.
+  if (module === "disks") {
+    return [
+      { value: "graph", label: "Graph or ring" },
+      { value: "text", label: "Figure" },
+      { value: "both", label: "Graph or ring, and figure" }
+    ]
+  }
   if (def.graph) out.push({ value: "graph", label: "Graph" })
   if (def.ring) out.push({ value: "ring", label: "Ring" })
   out.push({ value: "text", label: "Figure" })
@@ -339,6 +433,13 @@ function moduleStyle(settings, module) {
   var own = normalizeStyle(settingValue(settings, module + "Style"))
   if (own) return own
   return normalizeStyle(settingValue(settings, "style")) || "both"
+}
+
+// A disk readout's look folded onto picture / figure / both.
+function diskLook(style) {
+  if (style === "ring") return "graph"
+  if (style === "ring-text") return "both"
+  return normalizeStyle(style) || "both"
 }
 
 function moveInList(list, id, delta) {

@@ -50,6 +50,7 @@
       "tabs": "cpu,gpu,memory,disks,network,sensors,battery",
       "showProcesses": true,
       "disksSource": "all",
+      "barDisks": "",
       "barSensors": "cpu",
       "barGpus": "all",
       "barLabels": "text"
@@ -95,10 +96,17 @@
         "defaultValue": "text"
       },
       {
+        "key": "barDisks",
+        "type": "string",
+        "label": "Disk readouts",
+        "description": "One bar readout per entry, as disk:show where disk is \"all\" or a block device like nvme0n1 and show is speed, used, or both; \"none\" hides them. Empty follows disksSource (pick them on the Settings page).",
+        "defaultValue": ""
+      },
+      {
         "key": "disksSource",
         "type": "string",
-        "label": "Disk readout source",
-        "description": "\"all\" or a block device such as nvme0n1.",
+        "label": "Disk activity source",
+        "description": "Which disk the Disks page activity follows: \"all\" or a block device such as nvme0n1. Also the bar readout while barDisks is empty.",
         "defaultValue": "all"
       },
       {

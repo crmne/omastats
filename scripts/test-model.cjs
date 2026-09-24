@@ -46,3 +46,34 @@ test("GPU titles stay concise without erasing generic AMD identity", () => {
   assert.equal(model.gpuTitle({ vendor: "amd", name: "AMD Radeon RX 7900 XTX" }), "AMD RX 7900 XTX");
   assert.equal(model.gpuTitle({ vendor: "intel", name: "Intel Corporation Arc A770" }), "Intel Arc A770");
 });
+
+test("disk readouts keep the 1.1 bar until barDisks is set", () => {
+  assert.deepEqual(plain(model.barDisks({})), [{ disk: "all", show: "speed" }]);
+  assert.deepEqual(plain(model.barDisks({ disksSource: "sda", disksStyle: "ring-text" })),
+    [{ disk: "sda", show: "used" }]);
+  assert.deepEqual(plain(model.barDisks({ style: "ring" })), [{ disk: "all", show: "used" }]);
+  assert.deepEqual(plain(model.barDisks({ barDisks: "none" })), []);
+  assert.deepEqual(plain(model.barDisks({ barDisks: "ALL:space, nvme0n1:both,sda,nvme0n1:used" })),
+    [{ disk: "all", show: "used" }, { disk: "nvme0n1", show: "both" }, { disk: "sda", show: "speed" }]);
+  assert.equal(model.barDisksText(model.barDisks({ barDisks: "all:speed,sda:both" })), "all:speed,sda:both");
+  assert.equal(model.barDisksText([]), "none");
+  assert.equal(model.diskLook("ring"), "graph");
+  assert.equal(model.diskLook("ring-text"), "both");
+  assert.deepEqual(["nvme1n1", "sda", "mmcblk0", "all"].map(model.diskShort), ["NV1", "SDA", "MC0", "DSK"]);
+});
+
+test("disk space used sums a device's volumes and skips network mounts", () => {
+  const snapshot = { disks: {
+    perDisk: { nvme0n1: {}, sda: {} },
+    volumes: [
+      { disk: "nvme0n1", used: 30, size: 100 },
+      { disk: "nvme0n1", used: 10, size: 100 },
+      { disk: "sda", used: 50, size: 200 },
+      { disk: "nas", used: 900, size: 1000 },
+    ],
+  } };
+  assert.equal(model.diskUsage(snapshot, "nvme0n1").fraction, 0.2);
+  assert.deepEqual(plain(model.diskUsage(snapshot, "all")), { used: 90, size: 400, fraction: 0.225 });
+  assert.equal(model.diskUsage(snapshot, "sdb").fraction, 0);
+  assert.equal(model.diskUsage({ disks: { perDisk: {}, volumes: [{ disk: "nas", used: 1, size: 4 }] } }, "all").fraction, 0.25);
+});

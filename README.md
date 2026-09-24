@@ -20,7 +20,7 @@ OmaStats is an independent project and is not affiliated with Bjango.
 | CPU     | glyph · user/system history · %     | User/system history, per-core rings, load, uptime, top processes |
 | GPU     | one readout per GPU · history · %   | Its own tab, with a card for every GPU |
 | Memory  | glyph · used history · %            | Swap and memory rings, breakdown, processes                           |
-| Disks   | glyph · read/write history · rates  | Volumes (click to open in Files), activity for all disks or one, processes |
+| Disks   | per disk: read/write history and rates, space used | Volumes (click to open in Files), activity for all disks or one, processes |
 | Network | glyph · up/down history · rates     | Upload/download, interfaces, public and local IPs, traffic per process |
 | Sensors | any temperatures and fans you pick  | CPU/GPU/fan rings, every hwmon temperature and fan                    |
 | Battery | glyph by level · %                  | Charge and health rings, charge history, power, cycles, peripherals   |
@@ -104,8 +104,9 @@ Open the panel and click the gear at the right end of the tab strip (or press `s
 - **Bar**: switch each module's readout on or off, order them with the arrows,
   and pick each one's look: a mini history graph, a fullness ring (CPU, GPU,
   memory, disk capacity, battery charge), a figure, or a graph or ring with the
-  figure. The Disks readout can follow all disks or one device; the Sensors
-  readout shows whichever temperatures and fans you tick.
+  figure. Disks get a readout for each device you tick (or all disks together),
+  each showing read/write speed, space used, or both; the Sensors readout
+  shows whichever temperatures and fans you tick.
 - **Panel**: choose which tabs appear and which sections each page shows.
 - **General**: temperature unit, refresh interval (0.1 s to 10 s), history span,
   bar graph width, and a reset.
@@ -125,7 +126,8 @@ edited there by hand or through Setup → Plugins:
 | `tabs`                    | `cpu,gpu,memory,disks,network,sensors,battery` | Tabs shown in the panel                              |
 | `graphWidth`              | `36`                                      | Width of each mini graph in the bar                       |
 | `barLabels`               | `text`                                    | `text` stacks the module's letters vertically, `icon` uses glyphs |
-| `disksSource`             | `all`                                     | Disk readout and activity graph: `all` or a device like `nvme0n1` |
+| `barDisks`                | *(follows `disksSource`)*                 | Disk readouts as `disk:show`, e.g. `all:speed,nvme0n1:both`; `show` is `speed`, `used` or `both`, `none` hides them |
+| `disksSource`             | `all`                                     | Disks page activity: `all` or a device like `nvme0n1`     |
 | `barSensors`              | `cpu`                                     | Sensor readouts: `cpu`, `gpu`, or hwmon ids like `nct6687/fan1` |
 | `barGpus`                 | `all`                                     | Which GPUs get a readout: `all`, `none`, or PCI addresses like `0000:01:00.0` (pick them on the Settings page) |
 | `temperatureUnit`         | `Celsius`                                 | `Celsius` or `Fahrenheit`                                 |

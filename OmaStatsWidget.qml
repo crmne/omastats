@@ -25,6 +25,19 @@ Panel {
   // The GPU module expands to one readout per card the user picked, so each
   // entry carries its own PCI address and bar tag.
   readonly property var gpuReadouts: Model.selectedGpus(service ? service.snapshot : ({}), barGpus)
+  // Likewise the disks module: one readout per entry in barDisks. A device
+  // that has gone away is dropped once the sampler has reported any disk.
+  readonly property var diskReadouts: {
+    var perDisk = service && service.snapshot && service.snapshot.disks ? (service.snapshot.disks.perDisk || {}) : {}
+    var known = Object.keys(perDisk).length > 0
+    var list = Model.barDisks(settings)
+    var out = []
+    for (var i = 0; i < list.length; i++) {
+      if (list[i].disk !== "all" && known && !perDisk[list[i].disk]) continue
+      out.push(list[i])
+    }
+    return out
+  }
   readonly property var barModules: {
     var out = []
     for (var i = 0; i < configuredModules.length; i++) {
@@ -35,14 +48,28 @@ Panel {
           out.push({
             id: "gpu",
             gpuId: Model.gpuId(gpuReadouts[g]),
+            disk: "",
+            diskShow: "",
             label: gpuReadouts.length > 1 ? Model.gpuShort(gpuReadouts[g]) : ""
           })
         }
         continue
       }
-      out.push({ id: id, gpuId: "", label: "" })
+      if (id === "disks") {
+        for (var d = 0; d < diskReadouts.length; d++) {
+          out.push({
+            id: "disks",
+            gpuId: "",
+            disk: diskReadouts[d].disk,
+            diskShow: diskReadouts[d].show,
+            label: diskReadouts.length > 1 ? Model.diskShort(diskReadouts[d].disk) : ""
+          })
+        }
+        continue
+      }
+      out.push({ id: id, gpuId: "", disk: "", diskShow: "", label: "" })
     }
-    return out.length > 0 ? out : [{ id: "cpu", gpuId: "", label: "" }]
+    return out.length > 0 ? out : [{ id: "cpu", gpuId: "", disk: "", diskShow: "", label: "" }]
   }
   readonly property var moduleTabs: Model.panelTabs(hasBattery, Model.settingValue(settings, "tabs"), hasGpu)
   readonly property var panelTabs: moduleTabs.concat(["settings"])
@@ -50,7 +77,6 @@ Panel {
   readonly property string fontFamily: bar ? bar.fontFamily : Style.font.family
   readonly property string instanceKey: moduleName + ":" + Math.random().toString(36).slice(2, 8)
 
-  readonly property string disksSource: String(setting("disksSource", Model.SETTINGS.disksSource) || "all")
   readonly property string barSensors: String(setting("barSensors", Model.SETTINGS.barSensors) || "cpu")
   readonly property string barGpus: String(setting("barGpus", Model.SETTINGS.barGpus) || "all")
   readonly property string barLabels: String(setting("barLabels", Model.SETTINGS.barLabels)).toLowerCase() === "icon" ? "icon" : "text"
@@ -261,7 +287,8 @@ Panel {
         mode: root.styleFor(modelData.id)
         graphWidth: root.graphWidth
         temperatureUnit: root.temperatureUnit
-        disksSource: root.disksSource
+        disksSource: modelData.disk || "all"
+        diskShow: modelData.diskShow || "speed"
         barSensors: root.barSensors
         labelMode: root.barLabels
         onActivated: function(id, button) {
