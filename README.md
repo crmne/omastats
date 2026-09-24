@@ -115,8 +115,9 @@ memory bar figures, rings, and graph samples, plus disk-capacity bar figures and
 rings. The displayed rounded percentage selects low below 25%, normal 25–59%,
 warning 60–84%, or critical 85% and higher. Each grade accepts a `#RRGGBB`
 color. Disk and network transfer rates, battery, sensors, and panel graphs and
-rings keep their theme colors. The default grade colors suit dark bars; customize
-them for contrast on light bars.
+rings keep their theme colors. The default green, blue, orange, and red shades
+adapt to light and dark bars. A custom hex color stays fixed across themes;
+clear its field to return to the theme-aware default.
 
 Every process list has an **All** toggle that unfolds into every process with a
 search field (`/` from anywhere in the panel), sorted by that page's column.
@@ -141,10 +142,10 @@ edited there by hand or through Setup → Plugins:
 | `historySeconds`          | `240`                                     | How far back the graphs reach, in seconds                 |
 | `publicIp`                | `true`                                    | Look up the public address (api.ipify.org) on the Network page |
 | `utilizationColors`       | `false`                                   | Color bar utilization readouts and historical samples by grade |
-| `utilizationLowColor`     | `#72ca9b`                                 | `#RRGGBB` color for displayed values below 25%            |
-| `utilizationNormalColor`  | `#759cd1`                                 | `#RRGGBB` color for displayed values from 25% to 59%      |
-| `utilizationWarningColor` | `#da9c6c`                                 | `#RRGGBB` color for displayed values from 60% to 84%      |
-| `utilizationCriticalColor` | `#d67471`                                | `#RRGGBB` color for displayed values of 85% and higher    |
+| `utilizationLowColor`     | `""` (theme-aware green)                  | `#RRGGBB` color for displayed values below 25%            |
+| `utilizationNormalColor`  | `""` (theme-aware blue)                   | `#RRGGBB` color for displayed values from 25% to 59%      |
+| `utilizationWarningColor` | `""` (theme-aware orange)                 | `#RRGGBB` color for displayed values from 60% to 84%      |
+| `utilizationCriticalColor` | `""` (theme-aware red)                  | `#RRGGBB` color for displayed values of 85% and higher    |
 | `showProcesses`           | `true`                                    | Top processes on every page                               |
 | `showCores`, `showLoad`   | `true`                                    | CPU page sections                                         |
 | `showBreakdown`           | `true`                                    | Memory breakdown                                          |

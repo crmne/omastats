@@ -48,10 +48,10 @@
       "historySeconds": 240,
       "publicIp": true,
       "utilizationColors": false,
-      "utilizationLowColor": "#72ca9b",
-      "utilizationNormalColor": "#759cd1",
-      "utilizationWarningColor": "#da9c6c",
-      "utilizationCriticalColor": "#d67471",
+      "utilizationLowColor": "",
+      "utilizationNormalColor": "",
+      "utilizationWarningColor": "",
+      "utilizationCriticalColor": "",
       "tabs": "cpu,gpu,memory,disks,network,sensors,battery",
       "showProcesses": true,
       "disksSource": "all",
@@ -183,29 +183,29 @@
         "key": "utilizationLowColor",
         "type": "string",
         "label": "Low utilization color",
-        "description": "Six-digit hex color for displayed 0–24% utilization.",
-        "defaultValue": "#72ca9b"
+        "description": "Six-digit hex color for displayed 0–24% utilization; blank follows the current theme.",
+        "defaultValue": ""
       },
       {
         "key": "utilizationNormalColor",
         "type": "string",
         "label": "Normal utilization color",
-        "description": "Six-digit hex color for displayed 25–59% utilization.",
-        "defaultValue": "#759cd1"
+        "description": "Six-digit hex color for displayed 25–59% utilization; blank follows the current theme.",
+        "defaultValue": ""
       },
       {
         "key": "utilizationWarningColor",
         "type": "string",
         "label": "Warning utilization color",
-        "description": "Six-digit hex color for displayed 60–84% utilization.",
-        "defaultValue": "#da9c6c"
+        "description": "Six-digit hex color for displayed 60–84% utilization; blank follows the current theme.",
+        "defaultValue": ""
       },
       {
         "key": "utilizationCriticalColor",
         "type": "string",
         "label": "Critical utilization color",
-        "description": "Six-digit hex color for displayed 85–100% utilization.",
-        "defaultValue": "#d67471"
+        "description": "Six-digit hex color for displayed 85–100% utilization; blank follows the current theme.",
+        "defaultValue": ""
       },
       {
         "key": "showProcesses",

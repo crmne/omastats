@@ -17,6 +17,8 @@ Column {
   property bool publicIpEnabled: true
   property color foreground: Color.popups.text
   property string fontFamily: Style.font.family
+  readonly property bool lightTheme: host && host.bar && !host.bar.transparent && host.bar.background.a >= 0.95
+    ? host.bar.background.hslLightness > 0.5 : (host && host.bar ? host.bar.barForeground : Color.bar.text).hslLightness < 0.5
 
   readonly property bool hasGpu: !!(service && service.hasGpu)
   readonly property bool hasBattery: !!(service && service.hasBattery)
@@ -641,8 +643,10 @@ Column {
     property string key: ""
     property string label: ""
     property bool invalid: false
-    readonly property string settingColor: String(Model.settingValue(root.settings, key))
-    readonly property color swatchColor: Model.validHexColor(settingColor) ? settingColor : Model.SETTINGS[key]
+    readonly property string settingColor: Model.utilizationSettingColor(root.settings, key, root.lightTheme)
+    readonly property color swatchColor: settingColor
+    property string editStartText: ""
+    onSettingColorChanged: if (!input.activeFocus) input.text = settingColor
 
     width: parent ? parent.width : implicitWidth
     height: Style.space(30) + (invalid ? Style.space(14) : 0)
@@ -691,12 +695,20 @@ Column {
       onTextChanged: colorRow.invalid = false
       onActiveFocusChanged: {
         // Editors can gain and lose focus in either order during a handoff.
+        if (activeFocus) colorRow.editStartText = text
         root.focusedColorEditors = Math.max(0, root.focusedColorEditors + (activeFocus ? 1 : -1))
         if (root.host) root.host.searchActive = root.focusedColorEditors > 0
       }
       onEditingFinished: {
-        if (Model.validHexColor(text)) root.set(colorRow.key, text.toLowerCase())
-        else colorRow.invalid = true
+        if (text === colorRow.editStartText) {
+          text = colorRow.settingColor
+          colorRow.editStartText = text
+          return
+        }
+        if (text === "" || Model.validHexColor(text)) {
+          root.set(colorRow.key, text.toLowerCase())
+          colorRow.editStartText = text
+        } else colorRow.invalid = true
       }
       Keys.onEscapePressed: function(event) {
         focus = false
@@ -709,7 +721,7 @@ Column {
       visible: colorRow.invalid
       anchors.left: parent.left
       anchors.bottom: parent.bottom
-      text: "Use a six-digit hex color, such as #72ca9b."
+      text: "Use a six-digit hex color, or clear for the theme default."
       color: Color.urgent
       font.family: root.fontFamily
       font.pixelSize: Style.font.caption

@@ -39,6 +39,8 @@ WidgetButton {
   readonly property bool twoLine: module === "network" || (module === "disks" && !showRing)
   readonly property color s1: service ? service.series1 : foreground
   readonly property color s2: service ? service.series2 : foreground
+  readonly property bool lightTheme: bar && !bar.transparent && bar.background.a >= 0.95
+    ? bar.background.hslLightness > 0.5 : foreground.hslLightness < 0.5
   readonly property real graphHeight: Math.max(8, barSize - Style.space(11))
 
   readonly property var cpu: snap.cpu || ({})
@@ -70,8 +72,8 @@ WidgetButton {
     : (module === "gpu" ? (Model.gpuHasUtil(gpu) ? Number(gpu.util) : NaN)
     : (module === "memory" ? (mem.total > 0 ? memPercent : NaN)
     : (module === "disks" && showRing && capacityVolume && capacityVolume.size > 0 && capacityVolume.used !== null && capacityVolume.used !== undefined && isFinite(Number(capacityVolume.used)) ? ringValue * 100 : NaN)))
-  readonly property color utilizationColor: Model.utilizationColor(settings, utilizationPercent) || s1
-  readonly property color percentageColor: Model.utilizationColor(settings, utilizationPercent) || foreground
+  readonly property color utilizationColor: Model.utilizationColor(settings, utilizationPercent, lightTheme) || s1
+  readonly property color percentageColor: Model.utilizationColor(settings, utilizationPercent, lightTheme) || foreground
   readonly property bool charging: !!(battery && (battery.status === "Charging" || battery.status === "Full"))
 
   // Disk activity: the selected device when present, otherwise every disk.
@@ -96,7 +98,7 @@ WidgetButton {
   }
   readonly property color ringColor: {
     if (module === "battery") return battery && charging ? (service ? service.good : s1) : (ringValue <= 0.15 ? (service ? service.danger : s1) : s1)
-    if (module === "disks") return Model.utilizationColor(settings, utilizationPercent) || (ringValue >= 0.92 ? (service ? service.danger : s1) : (ringValue >= 0.8 ? (service ? service.warn : s1) : s1))
+    if (module === "disks") return Model.utilizationColor(settings, utilizationPercent, lightTheme) || (ringValue >= 0.92 ? (service ? service.danger : s1) : (ringValue >= 0.8 ? (service ? service.warn : s1) : s1))
     if (module === "cpu" || module === "gpu" || module === "memory") return utilizationColor
     return s1
   }
@@ -353,11 +355,11 @@ WidgetButton {
       colors: [root.s1, root.s2]
       sampleColors: {
         if (root.module === "cpu") {
-          var grades = Model.utilizationHistoryColors(root.hist.cpuTotal, root.settings)
+          var grades = Model.utilizationHistoryColors(root.hist.cpuTotal, root.settings, root.lightTheme)
           return [grades, grades]
         }
-        if (root.module === "memory") return [Model.utilizationHistoryColors(root.hist.memUsed, root.settings)]
-        if (root.module === "gpu") return [Model.utilizationHistoryColors(root.gpuSeries, root.settings)]
+        if (root.module === "memory") return [Model.utilizationHistoryColors(root.hist.memUsed, root.settings, root.lightTheme)]
+        if (root.module === "gpu") return [Model.utilizationHistoryColors(root.gpuSeries, root.settings, root.lightTheme)]
         return []
       }
       baselineColor: Util.alpha(root.foreground, 0.28)

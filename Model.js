@@ -34,10 +34,10 @@ var SETTINGS = {
   historySeconds: 240,
   publicIp: true,
   utilizationColors: false,
-  utilizationLowColor: "#72ca9b",
-  utilizationNormalColor: "#759cd1",
-  utilizationWarningColor: "#da9c6c",
-  utilizationCriticalColor: "#d67471",
+  utilizationLowColor: "",
+  utilizationNormalColor: "",
+  utilizationWarningColor: "",
+  utilizationCriticalColor: "",
   tabs: "cpu,gpu,memory,disks,network,sensors,battery",
   showProcesses: true,
   showCores: true, showLoad: true,
@@ -328,19 +328,28 @@ function validHexColor(value) {
   return typeof value === "string" && /^#[0-9A-Fa-f]{6}$/.test(value)
 }
 
-function utilizationColor(settings, value) {
-  var grade = utilizationGrade(value)
-  if (!flag(settings, "utilizationColors") || grade < 0) return null
-  var key = ["utilizationLowColor", "utilizationNormalColor", "utilizationWarningColor", "utilizationCriticalColor"][grade]
-  var color = settingValue(settings, key)
-  return validHexColor(color) ? color : SETTINGS[key]
+var UTILIZATION_KEYS = ["utilizationLowColor", "utilizationNormalColor", "utilizationWarningColor", "utilizationCriticalColor"]
+var UTILIZATION_DARK = ["#72ca9b", "#759cd1", "#da9c6c", "#d67471"]
+var UTILIZATION_LIGHT = ["#277944", "#3569aa", "#9c6019", "#af4444"]
+
+function utilizationSettingColor(settings, key, lightTheme) {
+  var chosen = settingValue(settings, key)
+  if (validHexColor(chosen)) return chosen
+  var index = UTILIZATION_KEYS.indexOf(key)
+  return (lightTheme ? UTILIZATION_LIGHT : UTILIZATION_DARK)[index]
 }
 
-function utilizationHistoryColors(values, settings) {
+function utilizationColor(settings, value, lightTheme) {
+  var grade = utilizationGrade(value)
+  if (!flag(settings, "utilizationColors") || grade < 0) return null
+  return utilizationSettingColor(settings, UTILIZATION_KEYS[grade], lightTheme)
+}
+
+function utilizationHistoryColors(values, settings, lightTheme) {
   if (!flag(settings, "utilizationColors")) return []
   var out = []
   var list = Array.isArray(values) ? values : []
-  for (var i = 0; i < list.length; i++) out.push(utilizationColor(settings, list[i]))
+  for (var i = 0; i < list.length; i++) out.push(utilizationColor(settings, list[i], lightTheme))
   return out
 }
 

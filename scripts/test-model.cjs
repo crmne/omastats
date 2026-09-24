@@ -61,9 +61,26 @@ test("utilization colors follow displayed percentages and preserve missing sampl
   assert.deepEqual(plain(model.utilizationHistoryColors([24, 85], {})), []);
   assert.deepEqual(plain(model.utilizationHistoryColors([24.4, 24.5, 59.5, 84.5, null], enabled)),
     ["#72ca9b", "#759cd1", "#da9c6c", "#d67471", null]);
+  assert.deepEqual(plain(model.utilizationHistoryColors([24, 25, 60, 85], enabled, true)),
+    ["#277944", "#3569aa", "#9c6019", "#af4444"]);
   assert.equal(model.utilizationColor({ ...enabled, utilizationCriticalColor: "#123abc" }, 85), "#123abc");
+  assert.equal(model.utilizationColor({ ...enabled, utilizationCriticalColor: "#123abc" }, 85, true), "#123abc");
   assert.equal(model.utilizationColor({ ...enabled, utilizationLowColor: "red" }, 0), "#72ca9b");
+  assert.equal(model.utilizationSettingColor({ utilizationLowColor: "" }, "utilizationLowColor", true), "#277944");
   assert.deepEqual(plain(model.pushNullableHistory([24], null, 3)), [24, null]);
+
+  function luminance(hex) {
+    const channels = [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16) / 255)
+      .map(x => x <= 0.04045 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4);
+    return channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722;
+  }
+  function contrast(a, b) {
+    const values = [luminance(a), luminance(b)].sort((x, y) => y - x);
+    return (values[0] + 0.05) / (values[1] + 0.05);
+  }
+  for (const background of ["#eff1f5", "#fffcf0"])
+    for (const color of plain(model.utilizationHistoryColors([0, 25, 60, 85], enabled, true)))
+      assert.ok(contrast(color, background) >= 4.5, `${color} is too faint on ${background}`);
 
   const manifest = JSON.parse(fs.readFileSync(path.join(__dirname, "../manifest.json"), "utf8"));
   for (const key of ["utilizationColors", "utilizationLowColor", "utilizationNormalColor",
