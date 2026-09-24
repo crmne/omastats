@@ -320,6 +320,7 @@ function utilizationGrade(value) {
   if (value === null || value === undefined || value === "") return -1
   var n = Number(value)
   if (!isFinite(n)) return -1
+  n = Math.round(clamp(n, 0, 100))
   return n < 25 ? 0 : (n < 60 ? 1 : (n < 85 ? 2 : 3))
 }
 
@@ -336,6 +337,7 @@ function utilizationColor(settings, value) {
 }
 
 function utilizationHistoryColors(values, settings) {
+  if (!flag(settings, "utilizationColors")) return []
   var out = []
   var list = Array.isArray(values) ? values : []
   for (var i = 0; i < list.length; i++) out.push(utilizationColor(settings, list[i]))

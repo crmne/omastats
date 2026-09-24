@@ -12,6 +12,7 @@ Column {
   property var service: null
   property var host: null
   property var settings: ({})
+  property int focusedColorEditors: 0
   property string temperatureUnit: "Celsius"
   property bool publicIpEnabled: true
   property color foreground: Color.popups.text
@@ -685,11 +686,21 @@ Column {
       maximumLength: 7
       horizontalAlignment: TextInput.AlignRight
       foreground: root.foreground
+      verticalPadding: Style.space(4)
       font.pixelSize: Style.font.caption
       onTextChanged: colorRow.invalid = false
+      onActiveFocusChanged: {
+        // Editors can gain and lose focus in either order during a handoff.
+        root.focusedColorEditors = Math.max(0, root.focusedColorEditors + (activeFocus ? 1 : -1))
+        if (root.host) root.host.searchActive = root.focusedColorEditors > 0
+      }
       onEditingFinished: {
         if (Model.validHexColor(text)) root.set(colorRow.key, text.toLowerCase())
         else colorRow.invalid = true
+      }
+      Keys.onEscapePressed: function(event) {
+        focus = false
+        event.accepted = true
       }
     }
 

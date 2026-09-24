@@ -176,35 +176,35 @@
         "key": "utilizationColors",
         "type": "boolean",
         "label": "Utilization colors",
-        "description": "Color CPU, GPU, memory and disk capacity by utilization grade.",
+        "description": "Color CPU, GPU, memory and disk-capacity bar readouts by utilization grade.",
         "defaultValue": false
       },
       {
         "key": "utilizationLowColor",
         "type": "string",
         "label": "Low utilization color",
-        "description": "Six-digit hex color for 0–24% utilization.",
+        "description": "Six-digit hex color for displayed 0–24% utilization.",
         "defaultValue": "#72ca9b"
       },
       {
         "key": "utilizationNormalColor",
         "type": "string",
         "label": "Normal utilization color",
-        "description": "Six-digit hex color for 25–59% utilization.",
+        "description": "Six-digit hex color for displayed 25–59% utilization.",
         "defaultValue": "#759cd1"
       },
       {
         "key": "utilizationWarningColor",
         "type": "string",
         "label": "Warning utilization color",
-        "description": "Six-digit hex color for 60–84% utilization.",
+        "description": "Six-digit hex color for displayed 60–84% utilization.",
         "defaultValue": "#da9c6c"
       },
       {
         "key": "utilizationCriticalColor",
         "type": "string",
         "label": "Critical utilization color",
-        "description": "Six-digit hex color for 85–100% utilization.",
+        "description": "Six-digit hex color for displayed 85–100% utilization.",
         "defaultValue": "#d67471"
       },
       {

@@ -351,9 +351,15 @@ WidgetButton {
         ? [root.hist.cpuUser || [], root.hist.cpuSystem || []]
         : [root.module === "memory" ? (root.hist.memUsed || []) : root.gpuSeries]
       colors: [root.s1, root.s2]
-      sampleColors: root.module === "cpu"
-        ? [Model.utilizationHistoryColors(root.hist.cpuTotal, root.settings), Model.utilizationHistoryColors(root.hist.cpuTotal, root.settings)]
-        : [Model.utilizationHistoryColors(root.module === "memory" ? root.hist.memUsed : root.gpuSeries, root.settings)]
+      sampleColors: {
+        if (root.module === "cpu") {
+          var grades = Model.utilizationHistoryColors(root.hist.cpuTotal, root.settings)
+          return [grades, grades]
+        }
+        if (root.module === "memory") return [Model.utilizationHistoryColors(root.hist.memUsed, root.settings)]
+        if (root.module === "gpu") return [Model.utilizationHistoryColors(root.gpuSeries, root.settings)]
+        return []
+      }
       baselineColor: Util.alpha(root.foreground, 0.28)
     }
   }
@@ -383,7 +389,7 @@ WidgetButton {
       width: Math.ceil(reserve.advanceWidth)
       horizontalAlignment: Text.AlignRight
       text: root.primaryText
-      color: root.module === "cpu" || root.module === "gpu" || root.module === "memory" || (root.module === "disks" && root.showRing) ? root.percentageColor : root.foreground
+      color: root.percentageColor
       font.family: root.fontFamily
       font.pixelSize: Style.font.body
       renderType: Text.NativeRendering
@@ -400,7 +406,7 @@ WidgetButton {
         textFormat: Text.PlainText
         width: Math.ceil(reserve.advanceWidth)
         text: root.primaryText
-        color: root.module === "cpu" || root.module === "gpu" || root.module === "memory" || (root.module === "disks" && root.showRing) ? root.percentageColor : root.foreground
+        color: root.foreground
         font.family: root.fontFamily
         font.pixelSize: Style.font.caption
         lineHeight: 0.95
