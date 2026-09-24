@@ -33,6 +33,11 @@ var SETTINGS = {
   refreshSeconds: 1,
   historySeconds: 240,
   publicIp: true,
+  utilizationColors: false,
+  utilizationLowColor: "#72ca9b",
+  utilizationNormalColor: "#759cd1",
+  utilizationWarningColor: "#da9c6c",
+  utilizationCriticalColor: "#d67471",
   tabs: "cpu,gpu,memory,disks,network,sensors,battery",
   showProcesses: true,
   showCores: true, showLoad: true,
@@ -309,6 +314,32 @@ function truthy(value, fallback) {
 
 function flag(settings, key) {
   return truthy(settingValue(settings, key), SETTINGS[key] === true)
+}
+
+function utilizationGrade(value) {
+  if (value === null || value === undefined || value === "") return -1
+  var n = Number(value)
+  if (!isFinite(n)) return -1
+  return n < 25 ? 0 : (n < 60 ? 1 : (n < 85 ? 2 : 3))
+}
+
+function validHexColor(value) {
+  return typeof value === "string" && /^#[0-9A-Fa-f]{6}$/.test(value)
+}
+
+function utilizationColor(settings, value) {
+  var grade = utilizationGrade(value)
+  if (!flag(settings, "utilizationColors") || grade < 0) return null
+  var key = ["utilizationLowColor", "utilizationNormalColor", "utilizationWarningColor", "utilizationCriticalColor"][grade]
+  var color = settingValue(settings, key)
+  return validHexColor(color) ? color : SETTINGS[key]
+}
+
+function utilizationHistoryColors(values, settings) {
+  var out = []
+  var list = Array.isArray(values) ? values : []
+  for (var i = 0; i < list.length; i++) out.push(utilizationColor(settings, list[i]))
+  return out
 }
 
 // Bar readout looks: graph, ring, text (figure only), both (graph + figure),
@@ -592,6 +623,13 @@ function pushHistory(arr, value, max) {
   var keep = Math.max(1, max - 1)
   var out = list.length > keep ? list.slice(list.length - keep) : list.slice()
   out.push(Number(value) || 0)
+  return out
+}
+
+function pushNullableHistory(arr, value, max) {
+  var valid = value !== null && value !== undefined && value !== "" && isFinite(Number(value))
+  var out = pushHistory(arr, valid ? Number(value) : 0, max)
+  out[out.length - 1] = valid ? Number(value) : null
   return out
 }
 

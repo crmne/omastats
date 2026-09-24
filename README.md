@@ -109,6 +109,11 @@ Open the panel and click the gear at the right end of the tab strip (or press `s
 - **Panel**: choose which tabs appear and which sections each page shows.
 - **General**: temperature unit, refresh interval (0.1 s to 10 s), history span,
   bar graph width, and a reset.
+- **Utilization colors** (off by default): grade CPU, GPU, and memory figures,
+  rings, and graph samples, plus disk capacity rings and figures. Bands are low
+  below 25%, normal 25–59%,
+  warning 60–84%, and critical 85% and higher. Each grade accepts a `#RRGGBB`
+  color. Disk and network transfer rates, battery, and sensors keep their theme colors.
 
 Every process list has an **All** toggle that unfolds into every process with a
 search field (`/` from anywhere in the panel), sorted by that page's column.
@@ -132,6 +137,8 @@ edited there by hand or through Setup → Plugins:
 | `refreshSeconds`          | `1`                                       | Sampling interval: 0.1, 0.2, 0.5, 1, 2, 5 or 10           |
 | `historySeconds`          | `240`                                     | How far back the graphs reach, in seconds                 |
 | `publicIp`                | `true`                                    | Look up the public address (api.ipify.org) on the Network page |
+| `utilizationColors`       | `false`                                   | Color utilization readouts and historical samples by grade |
+| `utilizationLowColor` … `utilizationCriticalColor` | `#72ca9b`, `#759cd1`, `#da9c6c`, `#d67471` | `#RRGGBB` colors below 25%, 25–59%, 60–84%, and 85% and higher |
 | `showProcesses`           | `true`                                    | Top processes on every page                               |
 | `showCores`, `showLoad`   | `true`                                    | CPU page sections                                         |
 | `showBreakdown`           | `true`                                    | Memory breakdown                                          |

@@ -9,6 +9,7 @@ Canvas {
 
   property var series: []
   property var colors: []
+  property var sampleColors: []
   property real ceiling: 0        // 0 = auto-scale to the visible window
   property real floor: 1          // minimum auto ceiling, keeps idle noise flat
   property real headroom: 1.06
@@ -25,6 +26,7 @@ Canvas {
 
   onSeriesChanged: requestPaint()
   onColorsChanged: requestPaint()
+  onSampleColorsChanged: requestPaint()
   onCeilingChanged: requestPaint()
   onWidthChanged: requestPaint()
   onHeightChanged: requestPaint()
@@ -70,8 +72,12 @@ Canvas {
         var top = snap(y - h)
         var bottom = snap(y)
         if (bottom - top < 1 / dpr) top = bottom - 1 / dpr
-        ctx.fillStyle = root.colors[c] || Color.accent
+        var perSeries = root.sampleColors[c]
+        var sampleColor = Array.isArray(perSeries) ? perSeries[idx] : null
+        ctx.globalAlpha = c === 1 && sampleColor ? 0.62 : 1
+        ctx.fillStyle = sampleColor || root.colors[c] || Color.accent
         ctx.fillRect(snap(x), top, Math.max(1 / dpr, snap(root.barWidth)), bottom - top)
+        ctx.globalAlpha = 1
         y -= h
       }
     }

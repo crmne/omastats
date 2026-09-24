@@ -385,6 +385,28 @@ Column {
       onChanged: function(value) { root.set("temperatureUnit", value) }
     }
 
+    FlagRow {
+      label: "Utilization colors"
+      checked: Model.flag(root.settings, "utilizationColors")
+      onToggled: root.set("utilizationColors", !checked)
+    }
+
+    Repeater {
+      model: Model.flag(root.settings, "utilizationColors")
+        ? [
+            { key: "utilizationLowColor", label: "Low (<25%)" },
+            { key: "utilizationNormalColor", label: "Normal (25–59%)" },
+            { key: "utilizationWarningColor", label: "Warning (60–84%)" },
+            { key: "utilizationCriticalColor", label: "Critical (85%+)" }
+          ] : []
+
+      delegate: ColorRow {
+        required property var modelData
+        key: String(modelData.key)
+        label: String(modelData.label)
+      }
+    }
+
     StepperRow {
       label: "Refresh every"
       value: root.num("refreshSeconds")
@@ -608,6 +630,84 @@ Column {
         fontFamily: root.fontFamily
         size: Style.space(22)
         onClicked: stepper.nudge(1)
+      }
+    }
+  }
+
+  component ColorRow: Item {
+    id: colorRow
+
+    property string key: ""
+    property string label: ""
+    property bool invalid: false
+    readonly property string settingColor: String(Model.settingValue(root.settings, key))
+    readonly property color swatchColor: Model.validHexColor(settingColor) ? settingColor : Model.SETTINGS[key]
+
+    width: parent ? parent.width : implicitWidth
+    height: Style.space(30) + (invalid ? Style.space(14) : 0)
+
+    Text {
+      textFormat: Text.PlainText
+      anchors.left: parent.left
+      anchors.right: input.left
+      anchors.rightMargin: Style.space(8)
+      anchors.verticalCenter: input.verticalCenter
+      text: colorRow.label
+      color: root.foreground
+      opacity: 0.9
+      font.family: root.fontFamily
+      font.pixelSize: Style.font.bodySmall
+      elide: Text.ElideRight
+    }
+
+    Rectangle {
+      id: swatch
+      anchors.right: parent.right
+      anchors.verticalCenter: input.verticalCenter
+      width: Style.space(18)
+      height: width
+      radius: Style.space(3)
+      color: colorRow.swatchColor
+      border.color: Util.alpha(root.foreground, 0.25)
+      border.width: 1
+    }
+
+    TextField {
+      id: input
+      anchors.right: swatch.left
+      anchors.rightMargin: Style.space(6)
+      anchors.top: parent.top
+      anchors.topMargin: Style.space(2)
+      width: Style.space(88)
+      height: Style.space(26)
+      text: colorRow.settingColor
+      placeholderText: "#RRGGBB"
+      maximumLength: 7
+      horizontalAlignment: TextInput.AlignRight
+      foreground: root.foreground
+      font.pixelSize: Style.font.caption
+      onTextChanged: colorRow.invalid = false
+      onEditingFinished: {
+        if (Model.validHexColor(text)) root.set(colorRow.key, text.toLowerCase())
+        else colorRow.invalid = true
+      }
+    }
+
+    Text {
+      textFormat: Text.PlainText
+      visible: colorRow.invalid
+      anchors.left: parent.left
+      anchors.bottom: parent.bottom
+      text: "Use a six-digit hex color, such as #72ca9b."
+      color: Color.urgent
+      font.family: root.fontFamily
+      font.pixelSize: Style.font.caption
+    }
+
+    Connections {
+      target: root
+      function onSettingsChanged() {
+        if (!input.activeFocus) input.text = colorRow.settingColor
       }
     }
   }

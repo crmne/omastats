@@ -17,6 +17,7 @@ WidgetButton {
   // Disks: "all" or a block device name. Sensors: comma list of sensor ids.
   property string disksSource: "all"
   property string barSensors: "cpu"
+  property var settings: ({})
   // GPU: which card this readout follows, by PCI address ("" = the first).
   property string gpuId: ""
   // Replaces the stacked label when several GPUs share the bar.
@@ -56,6 +57,21 @@ WidgetButton {
   readonly property var battery: snap.battery || null
 
   readonly property real memPercent: mem.total > 0 ? mem.used / mem.total * 100 : 0
+  readonly property var capacityVolume: {
+    var volumes = Array.isArray(disks.volumes) ? disks.volumes : []
+    var chosen = null
+    for (var i = 0; i < volumes.length; i++) {
+      if (singleDisk ? volumes[i].disk === disksSource : volumes[i].mount === "/") { chosen = volumes[i]; break }
+    }
+    if (!chosen && volumes.length > 0) chosen = volumes[0]
+    return chosen
+  }
+  readonly property real utilizationPercent: module === "cpu" ? Number(cpu.total)
+    : (module === "gpu" ? (Model.gpuHasUtil(gpu) ? Number(gpu.util) : NaN)
+    : (module === "memory" ? (mem.total > 0 ? memPercent : NaN)
+    : (module === "disks" && showRing && capacityVolume && capacityVolume.size > 0 && capacityVolume.used !== null && capacityVolume.used !== undefined && isFinite(Number(capacityVolume.used)) ? ringValue * 100 : NaN)))
+  readonly property color utilizationColor: Model.utilizationColor(settings, utilizationPercent) || s1
+  readonly property color percentageColor: Model.utilizationColor(settings, utilizationPercent) || foreground
   readonly property bool charging: !!(battery && (battery.status === "Charging" || battery.status === "Full"))
 
   // Disk activity: the selected device when present, otherwise every disk.
@@ -70,24 +86,18 @@ WidgetButton {
     switch (module) {
       case "cpu": return Model.num(cpu.total) / 100
       case "gpu": return Model.gpuHasUtil(gpu) ? Model.num(gpu.util) / 100 : 0
-      case "memory": return memPercent / 100
+      case "memory": return isFinite(memPercent) ? memPercent / 100 : 0
       case "battery": return battery ? Model.num(battery.percent) / 100 : 0
       case "disks": {
-        var volumes = Array.isArray(disks.volumes) ? disks.volumes : []
-        var chosen = null
-        for (var i = 0; i < volumes.length; i++) {
-          var v = volumes[i]
-          if (singleDisk ? v.disk === disksSource : v.mount === "/") { chosen = v; break }
-        }
-        if (!chosen && volumes.length > 0) chosen = volumes[0]
-        return chosen && chosen.size > 0 ? Model.num(chosen.used) / Model.num(chosen.size) : 0
+        return capacityVolume && capacityVolume.size > 0 ? Model.num(capacityVolume.used) / Model.num(capacityVolume.size) : 0
       }
     }
     return 0
   }
   readonly property color ringColor: {
     if (module === "battery") return battery && charging ? (service ? service.good : s1) : (ringValue <= 0.15 ? (service ? service.danger : s1) : s1)
-    if (module === "disks") return ringValue >= 0.92 ? (service ? service.danger : s1) : (ringValue >= 0.8 ? (service ? service.warn : s1) : s1)
+    if (module === "disks") return Model.utilizationColor(settings, utilizationPercent) || (ringValue >= 0.92 ? (service ? service.danger : s1) : (ringValue >= 0.8 ? (service ? service.warn : s1) : s1))
+    if (module === "cpu" || module === "gpu" || module === "memory") return utilizationColor
     return s1
   }
 
@@ -341,6 +351,9 @@ WidgetButton {
         ? [root.hist.cpuUser || [], root.hist.cpuSystem || []]
         : [root.module === "memory" ? (root.hist.memUsed || []) : root.gpuSeries]
       colors: [root.s1, root.s2]
+      sampleColors: root.module === "cpu"
+        ? [Model.utilizationHistoryColors(root.hist.cpuTotal, root.settings), Model.utilizationHistoryColors(root.hist.cpuTotal, root.settings)]
+        : [Model.utilizationHistoryColors(root.module === "memory" ? root.hist.memUsed : root.gpuSeries, root.settings)]
       baselineColor: Util.alpha(root.foreground, 0.28)
     }
   }
@@ -370,7 +383,7 @@ WidgetButton {
       width: Math.ceil(reserve.advanceWidth)
       horizontalAlignment: Text.AlignRight
       text: root.primaryText
-      color: root.foreground
+      color: root.module === "cpu" || root.module === "gpu" || root.module === "memory" || (root.module === "disks" && root.showRing) ? root.percentageColor : root.foreground
       font.family: root.fontFamily
       font.pixelSize: Style.font.body
       renderType: Text.NativeRendering
@@ -387,7 +400,7 @@ WidgetButton {
         textFormat: Text.PlainText
         width: Math.ceil(reserve.advanceWidth)
         text: root.primaryText
-        color: root.foreground
+        color: root.module === "cpu" || root.module === "gpu" || root.module === "memory" || (root.module === "disks" && root.showRing) ? root.percentageColor : root.foreground
         font.family: root.fontFamily
         font.pixelSize: Style.font.caption
         lineHeight: 0.95
