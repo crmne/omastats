@@ -56,6 +56,7 @@ Column {
   readonly property var snapshot: service ? service.snapshot : ({})
   readonly property var diskOptions: Model.diskOptions(snapshot)
   readonly property var sensorOptions: Model.sensorOptions(snapshot)
+  readonly property var barDiskList: Model.barDisks(settings)
   readonly property var barSensorIds: Model.parseList(Model.settingValue(settings, "barSensors"))
   readonly property var gpuOptions: Model.gpuList(snapshot)
   // "all" keeps a GPU added later visible without another visit here.
@@ -87,6 +88,43 @@ Column {
     if (!enabled && at !== -1) list.splice(at, 1)
     if (list.length === 0) set("barGpus", "none")
     else set("barGpus", list.length === gpuOptions.length ? "all" : list.join(","))
+  }
+
+  function diskIndex(list, disk) {
+    for (var i = 0; i < list.length; i++) if (list[i].disk === disk) return i
+    return -1
+  }
+
+  function diskShowFor(disk) {
+    var at = diskIndex(barDiskList, disk)
+    return at === -1 ? "speed" : barDiskList[at].show
+  }
+
+  // Add, drop, or retarget one disk readout, kept in the Source list order
+  // ("All disks" first) so the bar stays stable however the switches flip.
+  function setBarDisk(disk, enabled, show) {
+    var list = barDiskList.map(function(entry) { return { disk: entry.disk, show: entry.show } })
+    var at = diskIndex(list, disk)
+    if (enabled && at === -1) list.push({ disk: disk, show: show || "speed" })
+    else if (enabled && show) list[at].show = show
+    if (!enabled && at !== -1) list.splice(at, 1)
+    var order = diskOptions.map(function(option) { return option.value })
+    list.sort(function(a, b) {
+      var ia = order.indexOf(a.disk), ib = order.indexOf(b.disk)
+      return (ia === -1 ? order.length : ia) - (ib === -1 ? order.length : ib)
+    })
+    set("barDisks", Model.barDisksText(list))
+  }
+
+  // Until barDisks is saved, the bar's disk readout is inferred from the
+  // disk look and the Disks page source. Pin it before changing either.
+  function pinBarDisks() {
+    if (!String(Model.settingValue(settings, "barDisks") || "").trim()) set("barDisks", Model.barDisksText(barDiskList))
+  }
+
+  function setDiskLook(value) {
+    pinBarDisks()
+    set("disksStyle", value)
   }
 
   function setBarSensor(id, enabled) {
@@ -225,23 +263,53 @@ Column {
           width: parent.width - x
           label: "Look"
           options: Model.styleOptions(moduleRow.moduleId)
-          value: Model.moduleStyle(root.settings, moduleRow.moduleId)
+          value: moduleRow.moduleId === "disks"
+            ? Model.diskLook(Model.moduleStyle(root.settings, "disks"))
+            : Model.moduleStyle(root.settings, moduleRow.moduleId)
           foreground: root.foreground
           fontFamily: root.fontFamily
-          onChanged: function(value) { root.set(moduleRow.moduleId + "Style", value) }
+          onChanged: function(value) {
+            if (moduleRow.moduleId === "disks") root.setDiskLook(value)
+            else root.set(moduleRow.moduleId + "Style", value)
+          }
         }
 
-        // Disks: which device the readout and the activity graph follow.
-        Dropdown {
+        // Disks: a readout per device picked here, each showing transfer
+        // speed, space used, or both.
+        Column {
           visible: moduleRow.enabled && moduleRow.moduleId === "disks"
           x: Style.space(12) + moduleSwitch.width + Style.space(12)
           width: parent.width - x
-          label: "Source"
-          options: root.diskOptions
-          value: String(Model.settingValue(root.settings, "disksSource") || "all")
-          foreground: root.foreground
-          fontFamily: root.fontFamily
-          onChanged: function(value) { root.set("disksSource", value) }
+          spacing: 0
+
+          Repeater {
+            model: moduleRow.moduleId === "disks" ? root.diskOptions.length : 0
+
+            delegate: Column {
+              id: diskRow
+              required property int index
+              readonly property var option: root.diskOptions[index] || ({})
+              readonly property string disk: String(option.value || "")
+              readonly property bool picked: root.diskIndex(root.barDiskList, disk) !== -1
+              width: parent.width
+              spacing: 0
+
+              FlagRow {
+                label: String(diskRow.option.label || "")
+                checked: diskRow.picked
+                onToggled: root.setBarDisk(diskRow.disk, !checked, "")
+              }
+
+              ChoiceRow {
+                visible: diskRow.picked
+                indent: Style.space(14)
+                label: "Show"
+                options: Model.DISK_SHOWS
+                value: root.diskShowFor(diskRow.disk)
+                onChanged: function(value) { root.setBarDisk(diskRow.disk, true, value) }
+              }
+            }
+          }
         }
 
         // GPUs: which cards get their own readout. Only worth showing on a
@@ -339,6 +407,22 @@ Column {
             label: String(section.label || "")
             checked: Model.flag(root.settings, String(section.key || ""))
             onToggled: root.set(String(section.key || ""), !checked)
+          }
+        }
+
+        // Disks page: which device the activity graph follows.
+        Dropdown {
+          visible: pageRow.enabled && pageRow.pageId === "disks"
+          x: Style.space(26)
+          width: parent.width - x
+          label: "Activity"
+          options: root.diskOptions
+          value: String(Model.settingValue(root.settings, "disksSource") || "all")
+          foreground: root.foreground
+          fontFamily: root.fontFamily
+          onChanged: function(value) {
+            root.pinBarDisks()
+            root.set("disksSource", value)
           }
         }
 

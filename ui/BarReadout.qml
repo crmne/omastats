@@ -16,6 +16,8 @@ WidgetButton {
   property string temperatureUnit: "Celsius"
   // Disks: "all" or a block device name. Sensors: comma list of sensor ids.
   property string disksSource: "all"
+  // Disks: "speed" (read/write), "used" (space), or "both".
+  property string diskShow: "speed"
   property string barSensors: "cpu"
   property var settings: ({})
   // GPU: which card this readout follows, by PCI address ("" = the first).
@@ -33,10 +35,20 @@ WidgetButton {
   readonly property bool ready: !!(service && service.ready)
   readonly property bool ringable: def.ring === true
   readonly property bool graphable: def.graph === true
-  readonly property bool showGraph: !vertical && graphable && (mode === "both" || mode === "graph")
-  readonly property bool showRing: !vertical && ringable && (mode === "ring" || mode === "ring-text")
-  readonly property bool showText: !vertical && (mode === "both" || mode === "text" || mode === "ring-text" || (!graphable && !ringable))
-  readonly property bool twoLine: module === "network" || (module === "disks" && !showRing)
+  // Disks split the look from the metric: the picture is a read/write graph
+  // for speed and a ring for space used, the figure rates or a percentage.
+  readonly property bool isDisk: module === "disks"
+  readonly property string diskLook: Model.diskLook(mode)
+  readonly property bool diskSpeed: diskShow !== "used"
+  readonly property bool diskUsed: diskShow === "used" || diskShow === "both"
+  readonly property bool diskPicture: diskLook !== "text"
+  readonly property bool diskFigure: diskLook !== "graph"
+  readonly property bool showGraph: !vertical && graphable && (isDisk ? diskPicture && diskSpeed : (mode === "both" || mode === "graph"))
+  readonly property bool showRing: !vertical && ringable && (isDisk ? diskPicture && diskUsed : (mode === "ring" || mode === "ring-text"))
+  readonly property bool showText: !vertical && (isDisk ? diskFigure && diskUsed : (mode === "both" || mode === "text" || mode === "ring-text" || (!graphable && !ringable)))
+  // Disk read/write figures, stacked beside the graph.
+  readonly property bool showRates: !vertical && isDisk && diskFigure && diskSpeed
+  readonly property bool twoLine: module === "network" || isDisk
   readonly property color s1: service ? service.series1 : foreground
   readonly property color s2: service ? service.series2 : foreground
   readonly property bool lightTheme: bar && !bar.transparent && bar.background.a >= 0.95
@@ -58,20 +70,12 @@ WidgetButton {
   readonly property var sensors: snap.sensors || ({})
   readonly property var battery: snap.battery || null
 
+  readonly property var diskUsage: Model.diskUsage(snap, singleDisk ? disksSource : "all")
   readonly property real memPercent: mem.total > 0 ? mem.used / mem.total * 100 : 0
-  readonly property var capacityVolume: {
-    var volumes = Array.isArray(disks.volumes) ? disks.volumes : []
-    var chosen = null
-    for (var i = 0; i < volumes.length; i++) {
-      if (singleDisk ? volumes[i].disk === disksSource : volumes[i].mount === "/") { chosen = volumes[i]; break }
-    }
-    if (!chosen && volumes.length > 0) chosen = volumes[0]
-    return chosen
-  }
   readonly property real utilizationPercent: module === "cpu" ? Number(cpu.total)
     : (module === "gpu" ? (Model.gpuHasUtil(gpu) ? Number(gpu.util) : NaN)
     : (module === "memory" ? (mem.total > 0 ? memPercent : NaN)
-    : (module === "disks" && showRing && capacityVolume && capacityVolume.size > 0 && capacityVolume.used !== null && capacityVolume.used !== undefined && isFinite(Number(capacityVolume.used)) ? ringValue * 100 : NaN)))
+    : (isDisk && diskUsed && diskUsage.size > 0 ? ringValue * 100 : NaN)))
   readonly property color utilizationColor: Model.utilizationColor(settings, utilizationPercent, lightTheme) || s1
   readonly property color percentageColor: Model.utilizationColor(settings, utilizationPercent, lightTheme) || foreground
   readonly property bool charging: !!(battery && (battery.status === "Charging" || battery.status === "Full"))
@@ -90,9 +94,7 @@ WidgetButton {
       case "gpu": return Model.gpuHasUtil(gpu) ? Model.num(gpu.util) / 100 : 0
       case "memory": return isFinite(memPercent) ? memPercent / 100 : 0
       case "battery": return battery ? Model.num(battery.percent) / 100 : 0
-      case "disks": {
-        return capacityVolume && capacityVolume.size > 0 ? Model.num(capacityVolume.used) / Model.num(capacityVolume.size) : 0
-      }
+      case "disks": return diskUsage.fraction
     }
     return 0
   }
@@ -132,7 +134,7 @@ WidgetButton {
       case "memory": return Model.percentText(memPercent)
       case "battery": return battery ? Model.percentText(battery.percent) : "—"
       case "network": return "↑ " + Model.compactRate(net.tx)
-      case "disks": return showRing ? Model.percentText(ringValue * 100) : "R " + Model.compactRate(diskRead)
+      case "disks": return "R " + Model.compactRate(diskRead)
     }
     return ""
   }
@@ -140,7 +142,7 @@ WidgetButton {
   readonly property string secondaryText: {
     if (!ready) return "…"
     if (module === "network") return "↓ " + Model.compactRate(net.rx)
-    if (module === "disks") return showRing ? "" : "W " + Model.compactRate(diskWrite)
+    if (module === "disks") return "W " + Model.compactRate(diskWrite)
     return ""
   }
 
@@ -186,8 +188,13 @@ WidgetButton {
           + (mem.swapUsed > 0 ? "\nSwap " + Model.bytesText(mem.swapUsed) : "")
       case "network":
         return (net.default || "Network") + " · ↓ " + Model.rateText(net.rx) + " · ↑ " + Model.rateText(net.tx)
-      case "disks":
-        return (singleDisk ? disksSource : "All disks") + " · read " + Model.rateText(diskRead) + " · write " + Model.rateText(diskWrite)
+      case "disks": {
+        var name = singleDisk ? disksSource : "All disks"
+        var speed = "read " + Model.rateText(diskRead) + " · write " + Model.rateText(diskWrite)
+        var space = diskUsage.size > 0 ? Model.pairText(diskUsage.used, diskUsage.size) + " used (" + Model.percentText(ringValue * 100) + ")" : "no volumes mounted"
+        if (diskShow === "used") return name + " · " + space + "\n" + speed
+        return name + " · " + speed + "\n" + space
+      }
       case "sensors":
         for (var i = 0; i < sensorReadings.length; i++) {
           var r = sensorReadings[i]
@@ -220,8 +227,15 @@ WidgetButton {
   TextMetrics {
     id: reserve
     font.family: root.fontFamily
-    font.pixelSize: root.twoLine ? Style.font.caption : Style.font.body
+    font.pixelSize: Style.font.caption
     text: root.reserveText
+  }
+
+  TextMetrics {
+    id: figureReserve
+    font.family: root.fontFamily
+    font.pixelSize: Style.font.body
+    text: "100%"
   }
 
   Row {
@@ -259,6 +273,13 @@ WidgetButton {
     }
 
     Loader {
+      active: root.showRates
+      visible: active
+      anchors.verticalCenter: parent.verticalCenter
+      sourceComponent: twoLineText
+    }
+
+    Loader {
       active: root.showRing
       visible: active
       anchors.verticalCenter: parent.verticalCenter
@@ -269,7 +290,7 @@ WidgetButton {
       active: root.showText && root.module !== "sensors"
       visible: active
       anchors.verticalCenter: parent.verticalCenter
-      sourceComponent: root.twoLine ? twoLineText : singleText
+      sourceComponent: root.module === "network" ? twoLineText : singleText
     }
 
     // Sensors: a glyph + figure pair per selected sensor.
@@ -388,9 +409,9 @@ WidgetButton {
 
     Text {
       textFormat: Text.PlainText
-      width: Math.ceil(reserve.advanceWidth)
+      width: Math.ceil(figureReserve.advanceWidth)
       horizontalAlignment: Text.AlignRight
-      text: root.primaryText
+      text: root.isDisk ? (root.ready ? Model.percentText(root.ringValue * 100) : "…") : root.primaryText
       color: root.percentageColor
       font.family: root.fontFamily
       font.pixelSize: Style.font.body
