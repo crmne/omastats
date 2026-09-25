@@ -263,6 +263,7 @@ Panel {
         temperatureUnit: root.temperatureUnit
         disksSource: root.disksSource
         barSensors: root.barSensors
+        settings: root.settings
         labelMode: root.barLabels
         onActivated: function(id, button) {
           if (button === Qt.LeftButton) root.toggleModule(id)

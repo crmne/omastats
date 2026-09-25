@@ -33,6 +33,11 @@ var SETTINGS = {
   refreshSeconds: 1,
   historySeconds: 240,
   publicIp: true,
+  utilizationColors: false,
+  utilizationLowColor: "",
+  utilizationNormalColor: "",
+  utilizationWarningColor: "",
+  utilizationCriticalColor: "",
   tabs: "cpu,gpu,memory,disks,network,sensors,battery",
   showProcesses: true,
   showCores: true, showLoad: true,
@@ -309,6 +314,43 @@ function truthy(value, fallback) {
 
 function flag(settings, key) {
   return truthy(settingValue(settings, key), SETTINGS[key] === true)
+}
+
+function utilizationGrade(value) {
+  if (value === null || value === undefined || value === "") return -1
+  var n = Number(value)
+  if (!isFinite(n)) return -1
+  n = Math.round(clamp(n, 0, 100))
+  return n < 25 ? 0 : (n < 60 ? 1 : (n < 85 ? 2 : 3))
+}
+
+function validHexColor(value) {
+  return typeof value === "string" && /^#[0-9A-Fa-f]{6}$/.test(value)
+}
+
+var UTILIZATION_KEYS = ["utilizationLowColor", "utilizationNormalColor", "utilizationWarningColor", "utilizationCriticalColor"]
+var UTILIZATION_DARK = ["#72ca9b", "#759cd1", "#da9c6c", "#d67471"]
+var UTILIZATION_LIGHT = ["#277944", "#3569aa", "#9c6019", "#af4444"]
+
+function utilizationSettingColor(settings, key, lightTheme) {
+  var chosen = settingValue(settings, key)
+  if (validHexColor(chosen)) return chosen
+  var index = UTILIZATION_KEYS.indexOf(key)
+  return (lightTheme ? UTILIZATION_LIGHT : UTILIZATION_DARK)[index]
+}
+
+function utilizationColor(settings, value, lightTheme) {
+  var grade = utilizationGrade(value)
+  if (!flag(settings, "utilizationColors") || grade < 0) return null
+  return utilizationSettingColor(settings, UTILIZATION_KEYS[grade], lightTheme)
+}
+
+function utilizationHistoryColors(values, settings, lightTheme) {
+  if (!flag(settings, "utilizationColors")) return []
+  var out = []
+  var list = Array.isArray(values) ? values : []
+  for (var i = 0; i < list.length; i++) out.push(utilizationColor(settings, list[i], lightTheme))
+  return out
 }
 
 // Bar readout looks: graph, ring, text (figure only), both (graph + figure),
@@ -592,6 +634,13 @@ function pushHistory(arr, value, max) {
   var keep = Math.max(1, max - 1)
   var out = list.length > keep ? list.slice(list.length - keep) : list.slice()
   out.push(Number(value) || 0)
+  return out
+}
+
+function pushNullableHistory(arr, value, max) {
+  var valid = value !== null && value !== undefined && value !== "" && isFinite(Number(value))
+  var out = pushHistory(arr, valid ? Number(value) : 0, max)
+  out[out.length - 1] = valid ? Number(value) : null
   return out
 }
 

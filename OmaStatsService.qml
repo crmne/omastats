@@ -69,7 +69,7 @@ Item {
     for (var gi = 0; gi < gpuList.length; gi++) {
       var gpuKey = Model.gpuId(gpuList[gi]) || String(gi)
       var previousGpu = h.gpus && h.gpus[gpuKey] ? h.gpus[gpuKey] : []
-      gpuHistory[gpuKey] = Model.pushHistory(previousGpu, Model.gpuHasUtil(gpuList[gi]) ? gpuList[gi].util : 0, n)
+      gpuHistory[gpuKey] = Model.pushNullableHistory(previousGpu, Model.gpuHasUtil(gpuList[gi]) ? gpuList[gi].util : null, n)
     }
     var diskHistory = {}
     for (var name in perDisk) {
@@ -83,10 +83,10 @@ Item {
     root.history = {
       cpuUser: Model.pushHistory(h.cpuUser, cpu.user, n),
       cpuSystem: Model.pushHistory(h.cpuSystem, cpu.system, n),
-      cpuTotal: Model.pushHistory(h.cpuTotal, cpu.total, n),
-      gpu: Model.pushHistory(h.gpu, gpu && isFinite(Number(gpu.util)) ? gpu.util : 0, n),
+      cpuTotal: Model.pushNullableHistory(h.cpuTotal, cpu.total, n),
+      gpu: Model.pushNullableHistory(h.gpu, gpu && Model.gpuHasUtil(gpu) ? gpu.util : null, n),
       gpus: gpuHistory,
-      memUsed: Model.pushHistory(h.memUsed, memPercent, n),
+      memUsed: Model.pushNullableHistory(h.memUsed, mem.total > 0 ? memPercent : null, n),
       memPressure: Model.pushHistory(h.memPressure, mem.pressureSome, n),
       netRx: Model.pushHistory(h.netRx, net.rx, n),
       netTx: Model.pushHistory(h.netTx, net.tx, n),

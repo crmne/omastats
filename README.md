@@ -112,7 +112,16 @@ Open the panel and click the gear at the right end of the tab strip (or press `s
   readout shows whichever temperatures and fans you tick.
 - **Panel**: choose which tabs appear and which sections each page shows.
 - **General**: temperature unit, refresh interval (0.1 s to 10 s), history span,
-  bar graph width, and a reset.
+  bar graph width, optional utilization colors, and a reset.
+
+Utilization colors are off by default. When enabled, they grade CPU, GPU, and
+memory bar figures, rings, and graph samples, plus disk-capacity bar figures and
+rings. The displayed rounded percentage selects low below 25%, normal 25–59%,
+warning 60–84%, or critical 85% and higher. Each grade accepts a `#RRGGBB`
+color. Disk and network transfer rates, battery, sensors, and panel graphs and
+rings keep their theme colors. The default green, blue, orange, and red shades
+adapt to light and dark bars. A custom hex color stays fixed across themes;
+clear its field to return to the theme-aware default.
 
 Every process list has an **All** toggle that unfolds into every process with a
 search field (`/` from anywhere in the panel), sorted by that page's column.
@@ -136,6 +145,11 @@ edited there by hand or through Setup → Plugins:
 | `refreshSeconds`          | `1`                                       | Sampling interval: 0.1, 0.2, 0.5, 1, 2, 5 or 10           |
 | `historySeconds`          | `240`                                     | How far back the graphs reach, in seconds                 |
 | `publicIp`                | `true`                                    | Look up the public address (api.ipify.org) on the Network page |
+| `utilizationColors`       | `false`                                   | Color bar utilization readouts and historical samples by grade |
+| `utilizationLowColor`     | `""` (theme-aware green)                  | `#RRGGBB` color for displayed values below 25%            |
+| `utilizationNormalColor`  | `""` (theme-aware blue)                   | `#RRGGBB` color for displayed values from 25% to 59%      |
+| `utilizationWarningColor` | `""` (theme-aware orange)                 | `#RRGGBB` color for displayed values from 60% to 84%      |
+| `utilizationCriticalColor` | `""` (theme-aware red)                  | `#RRGGBB` color for displayed values of 85% and higher    |
 | `showProcesses`           | `true`                                    | Top processes on every page                               |
 | `showCores`, `showLoad`   | `true`                                    | CPU page sections                                         |
 | `showBreakdown`           | `true`                                    | Memory breakdown                                          |
@@ -179,11 +193,13 @@ omarchy-shell crmne.omastats status          # JSON summary
 
 ## Design notes
 
-Graph colours come from the active theme: the accent is the first series and the
-theme colour furthest around the hue wheel (magenta, cyan or blue preferred) is the
-second, so user/system, upload/download and read/write always read as a pair in
-any theme. Warnings use the theme's yellow and red. Text never wears a data colour;
-identity comes from the dot beside it.
+By default, graph colours come from the active theme: the accent is the first
+series and the theme colour furthest around the hue wheel (magenta, cyan or
+blue preferred) is the second, so user/system, upload/download and read/write
+always read as a pair in any theme. Warnings use the theme's yellow and red.
+Text normally stays in the
+theme foreground; the optional utilization colors apply to selected bar figures,
+rings, and mini graphs. Other data keeps the theme palette and identity dots.
 
 The tab strip gives every module an equal slot, the settings gear included, so
 nothing shifts when you switch, and the panel sizes itself so every tab is

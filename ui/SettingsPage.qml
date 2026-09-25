@@ -12,10 +12,13 @@ Column {
   property var service: null
   property var host: null
   property var settings: ({})
+  property int focusedColorEditors: 0
   property string temperatureUnit: "Celsius"
   property bool publicIpEnabled: true
   property color foreground: Color.popups.text
   property string fontFamily: Style.font.family
+  readonly property bool lightTheme: host && host.bar && !host.bar.transparent && host.bar.background.a >= 0.95
+    ? host.bar.background.hslLightness > 0.5 : (host && host.bar ? host.bar.barForeground : Color.bar.text).hslLightness < 0.5
 
   readonly property bool hasGpu: !!(service && service.hasGpu)
   readonly property bool hasBattery: !!(service && service.hasBattery)
@@ -385,6 +388,28 @@ Column {
       onChanged: function(value) { root.set("temperatureUnit", value) }
     }
 
+    FlagRow {
+      label: "Utilization colors"
+      checked: Model.flag(root.settings, "utilizationColors")
+      onToggled: root.set("utilizationColors", !checked)
+    }
+
+    Repeater {
+      model: Model.flag(root.settings, "utilizationColors")
+        ? [
+            { key: "utilizationLowColor", label: "Low (<25%)" },
+            { key: "utilizationNormalColor", label: "Normal (25–59%)" },
+            { key: "utilizationWarningColor", label: "Warning (60–84%)" },
+            { key: "utilizationCriticalColor", label: "Critical (85%+)" }
+          ] : []
+
+      delegate: ColorRow {
+        required property var modelData
+        key: String(modelData.key)
+        label: String(modelData.label)
+      }
+    }
+
     StepperRow {
       label: "Refresh every"
       value: root.num("refreshSeconds")
@@ -608,6 +633,104 @@ Column {
         fontFamily: root.fontFamily
         size: Style.space(22)
         onClicked: stepper.nudge(1)
+      }
+    }
+  }
+
+  component ColorRow: Item {
+    id: colorRow
+
+    property string key: ""
+    property string label: ""
+    property bool invalid: false
+    readonly property string settingColor: Model.utilizationSettingColor(root.settings, key, root.lightTheme)
+    readonly property color swatchColor: settingColor
+    property string editStartText: ""
+    onSettingColorChanged: if (!input.activeFocus) input.text = settingColor
+
+    width: parent ? parent.width : implicitWidth
+    height: Style.space(30) + (invalid ? Style.space(14) : 0)
+
+    Text {
+      textFormat: Text.PlainText
+      anchors.left: parent.left
+      anchors.right: input.left
+      anchors.rightMargin: Style.space(8)
+      anchors.verticalCenter: input.verticalCenter
+      text: colorRow.label
+      color: root.foreground
+      opacity: 0.9
+      font.family: root.fontFamily
+      font.pixelSize: Style.font.bodySmall
+      elide: Text.ElideRight
+    }
+
+    Rectangle {
+      id: swatch
+      anchors.right: parent.right
+      anchors.verticalCenter: input.verticalCenter
+      width: Style.space(18)
+      height: width
+      radius: Style.space(3)
+      color: colorRow.swatchColor
+      border.color: Util.alpha(root.foreground, 0.25)
+      border.width: 1
+    }
+
+    TextField {
+      id: input
+      anchors.right: swatch.left
+      anchors.rightMargin: Style.space(6)
+      anchors.top: parent.top
+      anchors.topMargin: Style.space(2)
+      width: Style.space(88)
+      height: Style.space(26)
+      text: colorRow.settingColor
+      placeholderText: "#RRGGBB"
+      maximumLength: 7
+      horizontalAlignment: TextInput.AlignRight
+      foreground: root.foreground
+      verticalPadding: Style.space(4)
+      font.pixelSize: Style.font.caption
+      onTextChanged: colorRow.invalid = false
+      onActiveFocusChanged: {
+        // Editors can gain and lose focus in either order during a handoff.
+        if (activeFocus) colorRow.editStartText = text
+        root.focusedColorEditors = Math.max(0, root.focusedColorEditors + (activeFocus ? 1 : -1))
+        if (root.host) root.host.searchActive = root.focusedColorEditors > 0
+      }
+      onEditingFinished: {
+        if (text === colorRow.editStartText) {
+          text = colorRow.settingColor
+          colorRow.editStartText = text
+          return
+        }
+        if (text === "" || Model.validHexColor(text)) {
+          root.set(colorRow.key, text.toLowerCase())
+          colorRow.editStartText = text
+        } else colorRow.invalid = true
+      }
+      Keys.onEscapePressed: function(event) {
+        focus = false
+        event.accepted = true
+      }
+    }
+
+    Text {
+      textFormat: Text.PlainText
+      visible: colorRow.invalid
+      anchors.left: parent.left
+      anchors.bottom: parent.bottom
+      text: "Use a six-digit hex color, or clear for the theme default."
+      color: Color.urgent
+      font.family: root.fontFamily
+      font.pixelSize: Style.font.caption
+    }
+
+    Connections {
+      target: root
+      function onSettingsChanged() {
+        if (!input.activeFocus) input.text = colorRow.settingColor
       }
     }
   }

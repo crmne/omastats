@@ -47,6 +47,11 @@
       "refreshSeconds": 1,
       "historySeconds": 240,
       "publicIp": true,
+      "utilizationColors": false,
+      "utilizationLowColor": "",
+      "utilizationNormalColor": "",
+      "utilizationWarningColor": "",
+      "utilizationCriticalColor": "",
       "tabs": "cpu,gpu,memory,disks,network,sensors,battery",
       "showProcesses": true,
       "disksSource": "all",
@@ -166,6 +171,41 @@
         "label": "Look up public IP",
         "description": "Ask api.ipify.org for your public address while the Network page is open.",
         "defaultValue": true
+      },
+      {
+        "key": "utilizationColors",
+        "type": "boolean",
+        "label": "Utilization colors",
+        "description": "Color CPU, GPU, memory and disk-capacity bar readouts by utilization grade.",
+        "defaultValue": false
+      },
+      {
+        "key": "utilizationLowColor",
+        "type": "string",
+        "label": "Low utilization color",
+        "description": "Six-digit hex color for displayed 0–24% utilization; blank follows the current theme.",
+        "defaultValue": ""
+      },
+      {
+        "key": "utilizationNormalColor",
+        "type": "string",
+        "label": "Normal utilization color",
+        "description": "Six-digit hex color for displayed 25–59% utilization; blank follows the current theme.",
+        "defaultValue": ""
+      },
+      {
+        "key": "utilizationWarningColor",
+        "type": "string",
+        "label": "Warning utilization color",
+        "description": "Six-digit hex color for displayed 60–84% utilization; blank follows the current theme.",
+        "defaultValue": ""
+      },
+      {
+        "key": "utilizationCriticalColor",
+        "type": "string",
+        "label": "Critical utilization color",
+        "description": "Six-digit hex color for displayed 85–100% utilization; blank follows the current theme.",
+        "defaultValue": ""
       },
       {
         "key": "showProcesses",
