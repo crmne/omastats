@@ -436,7 +436,7 @@ class RuntimePmGate:
     every second, an awake card that could suspend never would. Reads of such
     a card are batched instead: the first read opens a short window that every
     sampler shares, then the card is left alone for its autosuspend delay and
-    callers get the value it last returned.
+    callers get the value it last returned, or nothing if it has none.
 
     Reads never wake a suspended card, so one that is asleep is read normally.
     """
@@ -448,6 +448,7 @@ class RuntimePmGate:
 
     def __init__(self) -> None:
         self.opened: dict[str, float] = {}
+        # The last value read from each gated attribute, by canonical path.
         self.held: dict[str, str] = {}
 
     @staticmethod
@@ -466,20 +467,26 @@ class RuntimePmGate:
 
     def read(self, device: str, path: str, now: float | None = None) -> str:
         """Read `path`, an attribute of the PCI `device`, unless that would
-        keep the card awake; then return the value it last read."""
+        keep the card awake; then return the value it last read, or "" if it
+        has none."""
         delay = self._awake_delay(device)
         if delay is None:
             return read_text(path)
         now = time.monotonic() if now is None else now
         key = os.path.realpath(device)
+        # `/sys/class/hwmon/hwmonN` and `.../device/hwmon/hwmonN` are the
+        # same directory, so a reading is held under one name.
+        attr = os.path.realpath(path)
         opened = self.opened.get(key)
         age = None if opened is None else now - opened
-        if age is not None and self.READ_WINDOW <= age < delay + self.MARGIN and path in self.held:
-            return self.held[path]
+        if age is not None and self.READ_WINDOW <= age < delay + self.MARGIN:
+            # Any read now would restart the timer, even of an attribute that
+            # has never been read, so the cooldown touches nothing.
+            return self.held.get(attr, "")
         if age is None or age >= delay + self.MARGIN:
             self.opened[key] = now
         value = read_text(path)
-        self.held[path] = value
+        self.held[attr] = value
         return value
 
     def read_hwmon(self, path: str) -> str:

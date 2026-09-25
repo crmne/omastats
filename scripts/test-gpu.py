@@ -75,6 +75,15 @@ class RuntimePmTests(unittest.TestCase):
         self.assertEqual(gate.read(str(device), busy, 105.9), "80")
         self.assertEqual(gate.read(str(device), busy, 106.0), "90")
 
+    def test_an_awake_card_is_not_read_for_the_first_time_in_its_cooldown(self):
+        device, busy = self.card("auto", "active")
+        gate = NAMESPACE["RuntimePmGate"]()
+        self.assertEqual(gate.read(str(device), busy, 100.0), "37")
+        (device / "temp1_input").write_text("45000\n")
+        temp = str(device / "temp1_input")
+        self.assertEqual(gate.read(str(device), temp, 101.0), "")
+        self.assertEqual(gate.read(str(device), temp, 106.0), "45000")
+
     def test_a_suspended_or_always_on_card_is_read_every_time(self):
         for control, status in (("auto", "suspended"), ("on", "active")):
             device, busy = self.card(control, status)

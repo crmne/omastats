@@ -3,7 +3,7 @@
 //! every second, an awake card that could suspend never would. Reads of such
 //! a card are batched instead: the first read opens a short window that every
 //! sampler shares, then the card is left alone for its autosuspend delay and
-//! callers get the value it last returned.
+//! callers get the value it last returned, or nothing if it has none.
 //!
 //! Reads never wake a suspended card, so one that is asleep is read normally.
 
@@ -22,7 +22,7 @@ const MARGIN: Duration = Duration::from_secs(1);
 struct Gate {
     /// When each card's current read window opened, by canonical device path.
     opened: HashMap<String, Instant>,
-    /// The last value read from each gated attribute.
+    /// The last value read from each gated attribute, by canonical path.
     held: HashMap<String, Option<String>>,
 }
 
@@ -57,7 +57,7 @@ fn decide(opened: Option<Instant>, delay: Duration, now: Instant) -> (bool, bool
 }
 
 /// Read `path`, an attribute of the PCI `device`, unless that would keep the
-/// card awake; then return the value it last read.
+/// card awake; then return the value it last read, or `None` if it has none.
 pub fn read(device: &str, path: &str) -> Option<String> {
     read_at(device, path, Instant::now())
 }
@@ -67,22 +67,29 @@ fn read_at(device: &str, path: &str, now: Instant) -> Option<String> {
         Some(delay) => delay,
         None => return read_text(path),
     };
-    let key = std::fs::canonicalize(device)
-        .map(|p| p.to_string_lossy().to_string())
-        .unwrap_or_else(|_| device.to_string());
+    let key = canonical(device);
+    let attr = canonical(path);
     let mut gate = GATE.lock().unwrap_or_else(|e| e.into_inner());
     let (allowed, reopen) = decide(gate.opened.get(&key).copied(), delay, now);
     if !allowed {
-        if let Some(value) = gate.held.get(path) {
-            return value.clone();
-        }
+        // Any read now would restart the timer, even of an attribute that
+        // has never been read, so the cooldown touches nothing.
+        return gate.held.get(&attr).cloned().flatten();
     }
     if reopen {
         gate.opened.insert(key, now);
     }
     let value = read_text(path);
-    gate.held.insert(path.to_string(), value.clone());
+    gate.held.insert(attr, value.clone());
     value
+}
+
+/// One name for a sysfs file however it was reached: `/sys/class/hwmon/hwmonN`
+/// and `.../device/hwmon/hwmonN` are the same directory.
+fn canonical(path: &str) -> String {
+    std::fs::canonicalize(path)
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_else(|_| path.to_string())
 }
 
 /// The PCI device behind an hwmon attribute such as `.../hwmon3/temp1_input`.
@@ -153,6 +160,19 @@ mod tests {
         std::fs::write(device.join("gpu_busy_percent"), "80\n").unwrap();
         assert_eq!(busy(&device, start + Duration::from_secs(1)).as_deref(), Some("37"));
         assert_eq!(busy(&device, start + Duration::from_secs(6)).as_deref(), Some("80"));
+        let _ = std::fs::remove_dir_all(device.parent().unwrap());
+    }
+
+    #[test]
+    fn an_awake_card_is_not_read_for_the_first_time_in_its_cooldown() {
+        let device = fake_card("uncached", "auto", "active");
+        let dev = device.to_string_lossy();
+        let start = Instant::now();
+        assert_eq!(busy(&device, start).as_deref(), Some("37"));
+        std::fs::write(device.join("temp1_input"), "45000\n").unwrap();
+        let temp = format!("{dev}/temp1_input");
+        assert_eq!(read_at(&dev, &temp, start + Duration::from_secs(1)), None);
+        assert_eq!(read_at(&dev, &temp, start + Duration::from_secs(6)).as_deref(), Some("45000"));
         let _ = std::fs::remove_dir_all(device.parent().unwrap());
     }
 
