@@ -379,7 +379,7 @@ WidgetButton {
       series: root.module === "cpu"
         ? [root.hist.cpuUser || [], root.hist.cpuSystem || []]
         : [root.module === "memory" ? (root.hist.memUsed || []) : (root.module === "gpuMemory" ? root.gpuMemorySeries : root.gpuSeries)]
-      colors: [root.s1, root.s2]
+      colors: root.module === "gpuMemory" ? [root.s2] : [root.s1, root.s2]
       sampleColors: {
         if (root.module === "cpu") {
           var grades = Model.utilizationHistoryColors(root.hist.cpuTotal, root.settings, root.lightTheme)

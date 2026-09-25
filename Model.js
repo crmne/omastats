@@ -506,7 +506,7 @@ function moveInList(list, id, delta) {
 }
 
 function moduleDef(id) {
-  if (id === "gpuMemory") return { id: "gpuMemory", icon: "󰍛", short: "VRM", label: "GPU memory", page: "GpuPage.qml", graph: true, ring: false }
+  if (id === "gpuMemory") return { id: "gpuMemory", icon: "V󰍛", short: "VRM", label: "GPU memory", page: "GpuPage.qml", graph: true, ring: false }
   for (var i = 0; i < MODULES.length; i++) if (MODULES[i].id === id) return MODULES[i]
   return MODULES[0]
 }

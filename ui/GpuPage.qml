@@ -65,7 +65,7 @@ Column {
       StatRow {
         label: "Load"
         detail: gpuCard.hasUtil ? "" : "load not reported"
-        dot: root.s1
+        dot: Model.flag(root.settings, "utilizationColors") ? "transparent" : root.s1
         value: gpuCard.hasUtil ? String(Math.round(gpuCard.gpu.util)) : "—"
         unit: gpuCard.hasUtil ? "%" : ""
         foreground: root.foreground
@@ -89,7 +89,7 @@ Column {
         detail: gpuCard.hasMemory ? Model.percentText(Model.gpuMemoryPercent(gpuCard.gpu)) : ""
         value: gpuCard.gpu ? Model.pairText(gpuCard.gpu.memUsed, gpuCard.gpu.memTotal).replace(/ [A-Z]+$/, "") : ""
         unit: gpuCard.gpu ? Model.bytesParts(gpuCard.gpu.memTotal).unit : ""
-        dot: root.s2
+        dot: Model.flag(root.settings, "utilizationColors") ? "transparent" : root.s2
         foreground: root.foreground
         fontFamily: root.fontFamily
       }

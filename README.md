@@ -18,7 +18,7 @@ OmaStats is an independent project and is not affiliated with Bjango.
 | Module  | Bar readout                         | Panel                                                                 |
 |---------|-------------------------------------|-----------------------------------------------------------------------|
 | CPU     | glyph · user/system history · %     | User/system history, per-core rings, load, uptime, top processes |
-| GPU     | one readout per GPU · history · %   | Its own tab, with aligned load and VRAM histories for every GPU |
+| GPU     | one readout per GPU · history · %   | Its own tab, with aligned load and VRAM histories when reported |
 | Memory  | glyph · used history · %            | Swap and memory rings, breakdown, processes                           |
 | Disks   | per disk: read/write history and rates, space used | Volumes (click to open in Files), activity for all disks or one, processes |
 | Network | glyph · up/down history · rates     | Upload/download, interfaces, public and local IPs, traffic per process |
@@ -146,7 +146,7 @@ edited there by hand or through Setup → Plugins:
 | `disksSource`             | `all`                                     | Disks page activity: `all` or a device like `nvme0n1`     |
 | `barSensors`              | `cpu`                                     | Sensor readouts: `cpu`, `gpu`, or hwmon ids like `nct6687/fan1` |
 | `barGpus`                 | `all`                                     | Which GPUs get a readout: `all`, `none`, or PCI addresses like `0000:01:00.0` (pick them on the Settings page) |
-| `showGpuMemory`           | `false`                                   | Show VRAM graph and percentage beside each selected GPU when available |
+| `showGpuMemory`           | `false`                                   | Show VRAM graph and percentage beside each selected GPU on horizontal bars when available |
 | `temperatureUnit`         | `Celsius`                                 | `Celsius` or `Fahrenheit`                                 |
 | `refreshSeconds`          | `1`                                       | Sampling interval: 0.1, 0.2, 0.5, 1, 2, 5 or 10           |
 | `historySeconds`          | `240`                                     | How far back the graphs reach, in seconds                 |
