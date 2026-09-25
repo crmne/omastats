@@ -132,7 +132,7 @@
       {
         "key": "showGpuMemory",
         "type": "boolean",
-        "label": "Show GPU memory in bar",
+        "label": "Show VRAM in horizontal bar",
         "description": "Show a VRAM graph and percentage beside each selected GPU on horizontal bars when memory usage is reported.",
         "defaultValue": false
       },
