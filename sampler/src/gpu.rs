@@ -1,3 +1,4 @@
+use crate::pm;
 use crate::util::{
     bounded_text, kill_process_group, list_dir, opt_f64, read_bounded_line, read_f64, read_text,
     run, system_command, which, EXTERNAL_TEXT_LIMIT, STREAM_LINE_LIMIT,
@@ -269,7 +270,7 @@ impl GpuSampler {
                 }
             }
         }
-        read_f64(format!("{hwmon}/{}", chosen?))
+        pm::read_hwmon_f64(&format!("{hwmon}/{}", chosen?))
     }
 
     fn sample_card(&self, card: &GpuCard) -> Value {
@@ -308,7 +309,7 @@ impl GpuSampler {
             "id": card.slot,
             "name": if card.name.is_empty() { card.kind.fallback_name() } else { card.name.as_str() },
             "vendor": card.kind.vendor(),
-            "util": opt_f64(read_f64(format!("{device}/gpu_busy_percent"))),
+            "util": opt_f64(pm::read_f64(device, &format!("{device}/gpu_busy_percent"))),
             "memUsed": opt_f64(read_f64(format!("{device}/mem_info_vram_used"))),
             "memTotal": opt_f64(read_f64(format!("{device}/mem_info_vram_total"))),
             "temp": opt_f64(temp),

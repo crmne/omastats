@@ -126,7 +126,10 @@ def read_text(path: str, default: str = "") -> str:
 
 
 def read_int(path: str, default: int | None = None) -> int | None:
-    raw = read_text(path)
+    return parse_int(read_text(path), default)
+
+
+def parse_int(raw: str, default: int | None = None) -> int | None:
     if raw == "":
         return default
     try:
@@ -139,7 +142,10 @@ def read_int(path: str, default: int | None = None) -> int | None:
 
 
 def read_float(path: str, default: float | None = None) -> float | None:
-    raw = read_text(path)
+    return parse_float(read_text(path), default)
+
+
+def parse_float(raw: str, default: float | None = None) -> float | None:
     if raw == "":
         return default
     try:
@@ -421,6 +427,77 @@ class CpuSampler:
         }
 
 
+# ---------------------------------------------------------------------- Runtime PM
+
+
+class RuntimePmGate:
+    """amdgpu restarts a card's runtime-suspend timer on every sysfs read that
+    reaches the hardware (utilisation, temperature, clock, power). Sampled
+    every second, an awake card that could suspend never would. Reads of such
+    a card are batched instead: the first read opens a short window that every
+    sampler shares, then the card is left alone for its autosuspend delay and
+    callers get the value it last returned, or nothing if it has none.
+
+    Reads never wake a suspended card, so one that is asleep is read normally.
+    """
+
+    # Long enough for one sampling pass to read everything it wants.
+    READ_WINDOW = 0.5
+    # Headroom past the autosuspend delay, so the timer can always expire.
+    MARGIN = 1.0
+
+    def __init__(self) -> None:
+        self.opened: dict[str, float] = {}
+        # The last value read from each gated attribute, by canonical path.
+        self.held: dict[str, str] = {}
+
+    @staticmethod
+    def _awake_delay(device: str) -> float | None:
+        """Seconds an awake amdgpu card must go unread to runtime-suspend."""
+        try:
+            driver = os.path.basename(os.readlink(f"{device}/driver"))
+        except OSError:
+            return None
+        if (driver != "amdgpu"
+                or read_text(f"{device}/power/control") != "auto"
+                or read_text(f"{device}/power/runtime_status") != "active"):
+            return None
+        ms = read_int(f"{device}/power/autosuspend_delay_ms")
+        return ms / 1000 if ms is not None and ms >= 0 else None
+
+    def read(self, device: str, path: str, now: float | None = None) -> str:
+        """Read `path`, an attribute of the PCI `device`, unless that would
+        keep the card awake; then return the value it last read, or "" if it
+        has none."""
+        delay = self._awake_delay(device)
+        if delay is None:
+            return read_text(path)
+        now = time.monotonic() if now is None else now
+        key = os.path.realpath(device)
+        # `/sys/class/hwmon/hwmonN` and `.../device/hwmon/hwmonN` are the
+        # same directory, so a reading is held under one name.
+        attr = os.path.realpath(path)
+        opened = self.opened.get(key)
+        age = None if opened is None else now - opened
+        if age is not None and self.READ_WINDOW <= age < delay + self.MARGIN:
+            # Any read now would restart the timer, even of an attribute that
+            # has never been read, so the cooldown touches nothing.
+            return self.held.get(attr, "")
+        if age is None or age >= delay + self.MARGIN:
+            self.opened[key] = now
+        value = read_text(path)
+        self.held[attr] = value
+        return value
+
+    def read_hwmon(self, path: str) -> str:
+        """An hwmon attribute such as `.../hwmon3/temp1_input`, gated by the
+        PCI device behind it."""
+        return self.read(f"{os.path.dirname(path)}/device", path)
+
+
+RUNTIME_PM = RuntimePmGate()
+
+
 # ----------------------------------------------------------------------------- GPU
 
 
@@ -576,7 +653,7 @@ class GpuSampler:
                         break
         if not chosen:
             return None
-        return read_float(f"{hwmon}/{chosen}")
+        return parse_float(RUNTIME_PM.read_hwmon(f"{hwmon}/{chosen}"))
 
     def _sample_card(self, entry: GpuCard) -> dict:
         if entry.kind == "nvidia":
@@ -601,7 +678,7 @@ class GpuSampler:
             "id": entry.slot,
             "name": entry.name or ("AMD" if entry.kind == "amd" else "Intel"),
             "vendor": entry.kind,
-            "util": read_float(f"{entry.device}/gpu_busy_percent"),
+            "util": parse_float(RUNTIME_PM.read(entry.device, f"{entry.device}/gpu_busy_percent")),
             "memUsed": read_float(f"{entry.device}/mem_info_vram_used"),
             "memTotal": read_float(f"{entry.device}/mem_info_vram_total"),
             "temp": temp / 1000 if temp else None,
@@ -1123,7 +1200,7 @@ class SensorSampler:
                 name_seen[chip["name"]] = name_seen.get(chip["name"], 0) + 1
                 chip_label = f"{chip_label} {name_seen[chip['name']]}"
             for temp in chip["temps"]:
-                raw = read_int(temp["path"])
+                raw = parse_int(RUNTIME_PM.read_hwmon(temp["path"]))
                 if raw is None or raw <= 0 or raw >= 200_000:
                     continue
                 label = temp["label"] or (chip_label if len(chip["temps"]) == 1 else f"{chip_label} {temp['key'][4:]}")
@@ -1135,7 +1212,7 @@ class SensorSampler:
                     "max": round(temp["max"] / 1000) if 0 < temp["max"] < 200_000 else 0,
                 })
             for fan in chip["fans"]:
-                raw = read_int(fan["path"])
+                raw = parse_int(RUNTIME_PM.read_hwmon(fan["path"]))
                 if raw is None:
                     continue
                 fans.append({
@@ -1146,7 +1223,7 @@ class SensorSampler:
                 })
         gpu_temp = None
         if self.gpu_temp_path:
-            raw = read_int(self.gpu_temp_path)
+            raw = parse_int(RUNTIME_PM.read_hwmon(self.gpu_temp_path))
             if raw:
                 gpu_temp = round(raw / 1000, 1)
         return {"temps": temps, "fans": fans, "gpuTemp": gpu_temp}

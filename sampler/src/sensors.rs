@@ -1,3 +1,4 @@
+use crate::pm;
 use crate::util::{
     bounded_text, hwmon_dirs, list_dir, read_i64, read_text, round1, EXTERNAL_TEXT_LIMIT,
 };
@@ -217,7 +218,7 @@ impl SensorSampler {
                 chip_label = format!("{chip_label} {n}");
             }
             for temp in &chip.temps {
-                let raw = match read_i64(&temp.path) {
+                let raw = match pm::read_hwmon_i64(&temp.path) {
                     Some(v) if v > 0 && v < 200_000 => v,
                     _ => continue,
                 };
@@ -237,7 +238,7 @@ impl SensorSampler {
                 }));
             }
             for fan in &chip.fans {
-                let raw = match read_i64(&fan.path) {
+                let raw = match pm::read_hwmon_i64(&fan.path) {
                     Some(v) => v,
                     None => continue,
                 };
@@ -252,7 +253,7 @@ impl SensorSampler {
         let gpu_temp = self
             .gpu_temp_path
             .as_ref()
-            .and_then(read_i64)
+            .and_then(|path| pm::read_hwmon_i64(path))
             .filter(|v| *v > 0)
             .map(|v| round1(v as f64 / 1000.0));
         json!({ "temps": temps, "fans": fans, "gpuTemp": gpu_temp })

@@ -91,7 +91,10 @@ pub fn read_bounded_line<R: BufRead>(reader: &mut R, limit: usize) -> io::Result
 }
 
 pub fn read_i64<P: AsRef<Path>>(path: P) -> Option<i64> {
-    let raw = read_text(path)?;
+    parse_i64(&read_text(path)?)
+}
+
+pub fn parse_i64(raw: &str) -> Option<i64> {
     if raw.is_empty() {
         return None;
     }
@@ -101,7 +104,10 @@ pub fn read_i64<P: AsRef<Path>>(path: P) -> Option<i64> {
 }
 
 pub fn read_f64<P: AsRef<Path>>(path: P) -> Option<f64> {
-    let raw = read_text(path)?;
+    parse_f64(&read_text(path)?)
+}
+
+pub fn parse_f64(raw: &str) -> Option<f64> {
     if raw.is_empty() {
         return None;
     }
