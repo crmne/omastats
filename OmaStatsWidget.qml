@@ -52,6 +52,8 @@ Panel {
             diskShow: "",
             label: gpuReadouts.length > 1 ? Model.gpuShort(gpuReadouts[g]) : ""
           })
+          if (Model.flag(settings, "showGpuMemory") && Model.gpuMemoryPercent(gpuReadouts[g]) !== null)
+            out.push({ id: "gpuMemory", gpuId: Model.gpuId(gpuReadouts[g]), label: "VRM" })
         }
         continue
       }
@@ -284,7 +286,7 @@ Panel {
         gpuId: modelData.gpuId
         shortLabel: modelData.label
         service: root.service
-        mode: root.styleFor(modelData.id)
+        mode: modelData.id === "gpuMemory" ? "both" : root.styleFor(modelData.id)
         graphWidth: root.graphWidth
         temperatureUnit: root.temperatureUnit
         disksSource: modelData.disk || "all"

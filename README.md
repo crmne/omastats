@@ -18,7 +18,7 @@ OmaStats is an independent project and is not affiliated with Bjango.
 | Module  | Bar readout                         | Panel                                                                 |
 |---------|-------------------------------------|-----------------------------------------------------------------------|
 | CPU     | glyph · user/system history · %     | User/system history, per-core rings, load, uptime, top processes |
-| GPU     | one readout per GPU · history · %   | Its own tab, with a card for every GPU |
+| GPU     | one readout per GPU · history · %   | Its own tab, with aligned load and VRAM histories for every GPU |
 | Memory  | glyph · used history · %            | Swap and memory rings, breakdown, processes                           |
 | Disks   | per disk: read/write history and rates, space used | Volumes (click to open in Files), activity for all disks or one, processes |
 | Network | glyph · up/down history · rates     | Upload/download, interfaces, public and local IPs, traffic per process |
@@ -110,19 +110,22 @@ Open the panel and click the gear at the right end of the tab strip (or press `s
   memory, disk capacity, battery charge), a figure, or a graph or ring with the
   figure. Disks get a readout for each device you tick (or all disks together),
   each showing read/write speed, space used, or both; the Sensors readout
-  shows whichever temperatures and fans you tick.
+  shows whichever temperatures and fans you tick. On horizontal bars, GPU
+  memory can show its own VRAM graph and percentage beside each selected GPU.
 - **Panel**: choose which tabs appear and which sections each page shows.
 - **General**: temperature unit, refresh interval (0.1 s to 10 s), history span,
   bar graph width, optional utilization colors, and a reset.
 
-Utilization colors are off by default. When enabled, they grade CPU, GPU, and
-memory bar figures, rings, and graph samples, plus disk-capacity bar figures and
-rings. The displayed rounded percentage selects low below 25%, normal 25–59%,
+Utilization colors are off by default. When enabled, they grade CPU, GPU load,
+GPU memory, and system memory bar figures and graph samples. The GPU tab's load
+and VRAM histories use the same grades. CPU, GPU load, system memory, and disk
+capacity rings are graded too, along with disk capacity figures. The displayed
+rounded percentage selects low below 25%, normal 25–59%,
 warning 60–84%, or critical 85% and higher. Each grade accepts a `#RRGGBB`
-color. Disk and network transfer rates, battery, sensors, and panel graphs and
-rings keep their theme colors. The default green, blue, orange, and red shades
-adapt to light and dark bars. A custom hex color stays fixed across themes;
-clear its field to return to the theme-aware default.
+color. Disk and network transfer rates, battery, sensors, and other panel graphs
+and rings keep their theme colors. The default green, blue, orange, and red shades
+adapt to light and dark bars and popups. A custom hex color stays fixed across
+themes; clear its field to return to the theme-aware default.
 
 Every process list has an **All** toggle that unfolds into every process with a
 search field (`/` from anywhere in the panel), sorted by that page's column.
@@ -143,6 +146,7 @@ edited there by hand or through Setup → Plugins:
 | `disksSource`             | `all`                                     | Disks page activity: `all` or a device like `nvme0n1`     |
 | `barSensors`              | `cpu`                                     | Sensor readouts: `cpu`, `gpu`, or hwmon ids like `nct6687/fan1` |
 | `barGpus`                 | `all`                                     | Which GPUs get a readout: `all`, `none`, or PCI addresses like `0000:01:00.0` (pick them on the Settings page) |
+| `showGpuMemory`           | `false`                                   | Show VRAM graph and percentage beside each selected GPU when available |
 | `temperatureUnit`         | `Celsius`                                 | `Celsius` or `Fahrenheit`                                 |
 | `refreshSeconds`          | `1`                                       | Sampling interval: 0.1, 0.2, 0.5, 1, 2, 5 or 10           |
 | `historySeconds`          | `240`                                     | How far back the graphs reach, in seconds                 |

@@ -18,7 +18,9 @@ Column {
 
   readonly property var snap: service ? service.snapshot : ({})
   readonly property var hist: service ? service.history : Model.emptyHistory()
+  readonly property bool lightTheme: Color.popups.background.hslLightness > 0.5
   readonly property color s1: service ? service.series1 : Color.accent
+  readonly property color s2: service ? service.series2 : Color.accent
   readonly property var gpuCards: Model.gpuList(snap)
 
   function headerDetail(mhz, temp) {
@@ -39,6 +41,7 @@ Column {
       required property int index
       readonly property var gpu: root.gpuCards[index]
       readonly property bool hasUtil: Model.gpuHasUtil(gpu)
+      readonly property bool hasMemory: Model.gpuMemoryPercent(gpu) !== null
       foreground: root.foreground
 
       CardHeader {
@@ -54,6 +57,7 @@ Column {
         height: visible ? Style.space(64) : 0
         series: [Model.gpuHistory(root.hist, Model.gpuId(gpuCard.gpu))]
         colors: [root.s1]
+        sampleColors: [Model.utilizationHistoryColors(Model.gpuHistory(root.hist, Model.gpuId(gpuCard.gpu)), root.settings, root.lightTheme)]
         ceiling: 100
         baselineColor: Util.alpha(root.foreground, 0.14)
       }
@@ -68,12 +72,24 @@ Column {
         fontFamily: root.fontFamily
       }
 
+      HistoryGraph {
+        width: parent.width
+        visible: gpuCard.hasMemory
+        height: visible ? Style.space(64) : 0
+        series: [Model.gpuHistory(root.hist.gpuMemory, Model.gpuId(gpuCard.gpu))]
+        colors: [root.s2]
+        sampleColors: [Model.utilizationHistoryColors(Model.gpuHistory(root.hist.gpuMemory, Model.gpuId(gpuCard.gpu)), root.settings, root.lightTheme)]
+        ceiling: 100
+        baselineColor: Util.alpha(root.foreground, 0.14)
+      }
+
       StatRow {
-        visible: !!(gpuCard.gpu && gpuCard.gpu.memTotal > 0)
-        label: "Memory"
-        detail: gpuCard.gpu && gpuCard.gpu.memTotal > 0 ? Model.percentText(gpuCard.gpu.memUsed / gpuCard.gpu.memTotal * 100) : ""
+        visible: gpuCard.hasMemory
+        label: "VRAM"
+        detail: gpuCard.hasMemory ? Model.percentText(Model.gpuMemoryPercent(gpuCard.gpu)) : ""
         value: gpuCard.gpu ? Model.pairText(gpuCard.gpu.memUsed, gpuCard.gpu.memTotal).replace(/ [A-Z]+$/, "") : ""
         unit: gpuCard.gpu ? Model.bytesParts(gpuCard.gpu.memTotal).unit : ""
+        dot: root.s2
         foreground: root.foreground
         fontFamily: root.fontFamily
       }
