@@ -112,9 +112,11 @@ Open the panel and click the gear at the right end of the tab strip (or press `s
   memory, disk capacity, battery charge), a figure, or a graph or ring with the
   figure. Disks get a readout for each device you tick (or all disks together),
   each showing read/write speed, space used, or both; the Sensors readout
-  shows whichever temperatures and fans you tick. On horizontal bars, GPU
-  memory can get its own VRAM readout beside each selected GPU, drawn in the
-  GPU readout's look.
+  shows whichever temperatures and fans you tick. GPU memory can get its own
+  VRAM readout beside each selected GPU, drawn in the GPU readout's look. On a
+  vertical bar each readout stacks its label across the bar, with the graph or
+  ring and the figure under it; network and disk speeds show one rate per line,
+  colored like their half of the graph.
 - **Panel**: choose which tabs appear and which sections each page shows.
 - **General**: temperature unit, refresh interval (0.1 s to 10 s), history span,
   bar graph width, optional utilization colors, and a reset.
@@ -144,12 +146,12 @@ edited there by hand or through Setup → Plugins:
 | `cpuStyle` … `batteryStyle` | *(inherit)*                             | Per-module override of `style`                            |
 | `tabs`                    | `cpu,gpu,memory,disks,network,sensors,battery` | Tabs shown in the panel                              |
 | `graphWidth`              | `36`                                      | Width of each mini graph in the bar                       |
-| `barLabels`               | `text`                                    | `text` stacks the module's letters vertically, `icon` uses glyphs |
+| `barLabels`               | `text`                                    | `text` stacks the module's letters vertically (across a vertical bar), `icon` uses glyphs |
 | `barDisks`                | *(follows `disksSource`)*                 | Disk readouts as `disk:show`, e.g. `all:speed,nvme0n1:both`; `show` is `speed`, `used` or `both`, `none` hides them |
 | `disksSource`             | `all`                                     | Disks page activity: `all` or a device like `nvme0n1`     |
 | `barSensors`              | `cpu`                                     | Sensor readouts: `cpu`, `gpu`, or hwmon ids like `nct6687/fan1` |
 | `barGpus`                 | `all`                                     | Which GPUs get a readout: `all`, `none`, or PCI addresses like `0000:01:00.0` (pick them on the Settings page) |
-| `showGpuMemory`           | `false`                                   | Show a VRAM readout, in the GPU readout's look, beside each selected GPU on horizontal bars when available |
+| `showGpuMemory`           | `false`                                   | Show a VRAM readout, in the GPU readout's look, beside each selected GPU when available |
 | `temperatureUnit`         | `Celsius`                                 | `Celsius` or `Fahrenheit`                                 |
 | `refreshSeconds`          | `1`                                       | Sampling interval: 0.1, 0.2, 0.5, 1, 2, 5 or 10           |
 | `historySeconds`          | `240`                                     | How far back the graphs reach, in seconds                 |

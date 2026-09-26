@@ -132,8 +132,8 @@
       {
         "key": "showGpuMemory",
         "type": "boolean",
-        "label": "Show VRAM in horizontal bar",
-        "description": "Show a VRAM readout, in the GPU readout's look, beside each selected GPU on horizontal bars when memory usage is reported.",
+        "label": "Show VRAM in bar",
+        "description": "Show a VRAM readout, in the GPU readout's look, beside each selected GPU when memory usage is reported.",
         "defaultValue": false
       },
       {

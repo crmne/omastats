@@ -24,7 +24,8 @@ WidgetButton {
   property string gpuId: ""
   // Replaces the stacked label when several GPUs share the bar.
   property string shortLabel: ""
-  // "text" stacks the module's short name vertically, iStat style; "icon" uses a glyph.
+  // "text" stacks the module's short name vertically, iStat style (across the
+  // bar on a vertical one); "icon" uses a glyph.
   property string labelMode: "text"
 
   signal activated(string module, int button)
@@ -43,17 +44,21 @@ WidgetButton {
   readonly property bool diskUsed: diskShow === "used" || diskShow === "both"
   readonly property bool diskPicture: diskLook !== "text"
   readonly property bool diskFigure: diskLook !== "graph"
-  readonly property bool showGraph: !vertical && graphable && (isDisk ? diskPicture && diskSpeed : (mode === "both" || mode === "graph"))
-  readonly property bool showRing: !vertical && ringable && (isDisk ? diskPicture && diskUsed : (mode === "ring" || mode === "ring-text"))
-  readonly property bool showText: !vertical && (isDisk ? diskFigure && diskUsed : (mode === "both" || mode === "text" || mode === "ring-text" || (!graphable && !ringable)))
+  readonly property bool showGraph: graphable && (isDisk ? diskPicture && diskSpeed : (mode === "both" || mode === "graph"))
+  readonly property bool showRing: ringable && (isDisk ? diskPicture && diskUsed : (mode === "ring" || mode === "ring-text"))
+  readonly property bool showText: (isDisk ? diskFigure && diskUsed : (mode === "both" || mode === "text" || mode === "ring-text" || (!graphable && !ringable)))
   // Disk read/write figures, stacked beside the graph.
-  readonly property bool showRates: !vertical && isDisk && diskFigure && diskSpeed
+  readonly property bool showRates: isDisk && diskFigure && diskSpeed
   readonly property bool twoLine: module === "network" || isDisk
   readonly property color s1: service ? service.series1 : foreground
   readonly property color s2: service ? service.series2 : foreground
   readonly property bool lightTheme: bar && !bar.transparent && bar.background.a >= 0.95
     ? bar.background.hslLightness > 0.5 : foreground.hslLightness < 0.5
-  readonly property real graphHeight: Math.max(8, barSize - Style.space(11))
+  // A vertical bar stacks label, picture and figure in a column as wide as
+  // the bar, so the picture takes that width instead of graphWidth.
+  readonly property real cellWidth: Math.max(12, barSize - Style.space(6))
+  readonly property real pictureWidth: vertical ? cellWidth : graphWidth
+  readonly property real graphHeight: vertical ? Style.space(8) : Math.max(8, barSize - Style.space(11))
 
   readonly property var cpu: snap.cpu || ({})
   readonly property var gpu: {
@@ -226,7 +231,7 @@ WidgetButton {
   text: def.icon
   horizontalMargin: 5
   fixedWidth: vertical ? -1 : content.implicitWidth + scaledHorizontalMargin * 2
-  fixedHeight: vertical ? Style.bar.iconSlot : -1
+  fixedHeight: vertical ? Math.max(Style.bar.iconSlot, stack.implicitHeight + Style.space(7)) : -1
   tooltipText: tooltip()
 
   onPressed: function(button) { root.activated(root.module, button) }
@@ -247,6 +252,7 @@ WidgetButton {
 
   Row {
     id: content
+    visible: !root.vertical
     anchors.centerIn: parent
     spacing: Style.space(4)
 
@@ -273,28 +279,28 @@ WidgetButton {
     }
 
     Loader {
-      active: root.showGraph && root.module !== "sensors"
+      active: !root.vertical && root.showGraph && root.module !== "sensors"
       visible: active
       anchors.verticalCenter: parent.verticalCenter
       sourceComponent: root.twoLine ? mirrorGraph : historyGraph
     }
 
     Loader {
-      active: root.showRates
+      active: !root.vertical && root.showRates
       visible: active
       anchors.verticalCenter: parent.verticalCenter
       sourceComponent: twoLineText
     }
 
     Loader {
-      active: root.showRing
+      active: !root.vertical && root.showRing
       visible: active
       anchors.verticalCenter: parent.verticalCenter
       sourceComponent: ringGauge
     }
 
     Loader {
-      active: root.showText && root.module !== "sensors"
+      active: !root.vertical && root.showText && root.module !== "sensors"
       visible: active
       anchors.verticalCenter: parent.verticalCenter
       sourceComponent: root.module === "network" ? twoLineText : singleText
@@ -302,7 +308,7 @@ WidgetButton {
 
     // Sensors: a glyph + figure pair per selected sensor.
     Repeater {
-      model: root.module === "sensors" ? root.sensorReadings.length : 0
+      model: !root.vertical && root.module === "sensors" ? root.sensorReadings.length : 0
 
       delegate: Row {
         id: sensorPair
@@ -341,7 +347,6 @@ WidgetButton {
 
         Text {
           textFormat: Text.PlainText
-          visible: !root.vertical
           width: Math.ceil(sensorReserve.advanceWidth)
           horizontalAlignment: Text.AlignRight
           text: root.ready ? String(sensorPair.reading.text || "") + String(sensorPair.reading.unit === "°" ? "°" : "") : "…"
@@ -355,11 +360,153 @@ WidgetButton {
     }
   }
 
+  // Vertical bars: the label reads across the bar, with the picture and the
+  // figure stacked under it. Figures shrink to the bar's width rather than clip.
+  Column {
+    id: stack
+    visible: root.vertical
+    anchors.centerIn: parent
+    width: root.cellWidth
+    spacing: Style.space(2)
+
+    Loader {
+      active: root.vertical && root.module !== "sensors"
+      visible: active
+      width: parent.width
+      sourceComponent: root.labelMode === "text" ? acrossLabel : glyphLabel
+    }
+
+    Loader {
+      active: root.vertical && root.showGraph && root.module !== "sensors"
+      visible: active
+      anchors.horizontalCenter: parent.horizontalCenter
+      sourceComponent: root.twoLine ? mirrorGraph : historyGraph
+    }
+
+    Loader {
+      active: root.vertical && root.showRing
+      visible: active
+      anchors.horizontalCenter: parent.horizontalCenter
+      sourceComponent: ringGauge
+    }
+
+    // Network and disk speed: one rate per line, colored like its half of the
+    // graph, since the arrows and R/W tags don't fit across the bar.
+    Loader {
+      active: root.vertical && (root.showRates || (root.module === "network" && root.showText))
+      visible: active
+      width: parent.width
+      sourceComponent: Column {
+        width: parent ? parent.width : 0
+        spacing: 0
+
+        FitText {
+          text: root.ready ? Model.compactRate(root.module === "network" ? root.net.tx : root.diskRead) : "…"
+          color: root.s2
+          font.family: root.fontFamily
+        }
+
+        FitText {
+          text: root.ready ? Model.compactRate(root.module === "network" ? root.net.rx : root.diskWrite) : "…"
+          color: root.s1
+          font.family: root.fontFamily
+        }
+      }
+    }
+
+    Loader {
+      active: root.vertical && root.showText && root.module !== "sensors" && root.module !== "network"
+      visible: active
+      width: parent.width
+      sourceComponent: FitText {
+        text: root.isDisk ? (root.ready ? Model.percentText(root.ringValue * 100) : "…") : root.primaryText
+        color: root.percentageColor
+        font.family: root.fontFamily
+      }
+    }
+
+    // Sensors: a label and figure per selected sensor, one under another.
+    Repeater {
+      model: root.vertical && root.module === "sensors" ? root.sensorReadings.length : 0
+
+      delegate: Column {
+        id: sensorStack
+        required property int index
+        readonly property var reading: root.sensorReadings[index] || ({})
+        width: parent.width
+        spacing: Style.space(1)
+
+        FitText {
+          visible: root.labelMode === "text"
+          text: sensorStack.reading.short || "TMP"
+          color: root.foreground
+          font.family: root.fontFamily
+          font.bold: true
+        }
+
+        Text {
+          visible: root.labelMode !== "text"
+          width: parent.width
+          horizontalAlignment: Text.AlignHCenter
+          textFormat: Text.PlainText
+          text: sensorStack.reading.icon || "󰔏"
+          color: root.foreground
+          font.family: root.fontFamily
+          font.pixelSize: Style.bar.iconFont
+          renderType: Text.NativeRendering
+        }
+
+        FitText {
+          text: root.ready ? String(sensorStack.reading.text || "") + String(sensorStack.reading.unit === "°" ? "°" : "") : "…"
+          color: root.foreground
+          font.family: root.fontFamily
+        }
+      }
+    }
+  }
+
+  // Inline components can't see this file's ids, so each use sets its own
+  // font family and color.
+  component FitText: Text {
+    width: parent ? parent.width : 0
+    textFormat: Text.PlainText
+    horizontalAlignment: Text.AlignHCenter
+    fontSizeMode: Text.HorizontalFit
+    minimumPixelSize: 6
+    font.pixelSize: Style.font.caption
+    renderType: Text.NativeRendering
+  }
+
+  Component {
+    id: acrossLabel
+
+    FitText {
+      text: root.shortLabel || root.def.short || root.def.label
+      color: root.foreground
+      font.family: root.fontFamily
+      font.bold: true
+    }
+  }
+
+  Component {
+    id: glyphLabel
+
+    Text {
+      textFormat: Text.PlainText
+      horizontalAlignment: Text.AlignHCenter
+      text: root.glyph
+      color: root.foreground
+      font.family: root.fontFamily
+      font.pixelSize: Style.bar.iconFont
+      renderType: Text.NativeRendering
+    }
+  }
+
   Component {
     id: ringGauge
 
     MiniRing {
-      size: Math.max(10, root.barSize - Style.space(10))
+      size: root.vertical ? Style.space(14) : Math.max(10, root.barSize - Style.space(10))
       thickness: Style.spaceReal(2.4)
       value: root.ringValue
       color: root.ringColor
@@ -372,7 +519,7 @@ WidgetButton {
     id: historyGraph
 
     HistoryGraph {
-      width: root.graphWidth
+      width: root.pictureWidth
       height: root.graphHeight
       barWidth: 1
       gap: 1
@@ -399,7 +546,7 @@ WidgetButton {
     id: mirrorGraph
 
     MirrorGraph {
-      width: root.graphWidth
+      width: root.pictureWidth
       height: root.graphHeight
       barWidth: 1
       gap: 1

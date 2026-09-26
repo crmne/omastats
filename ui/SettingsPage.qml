@@ -276,7 +276,7 @@ Column {
 
         FlagRow {
           visible: moduleRow.enabled && moduleRow.moduleId === "gpu" && root.gpuOptions.some(function(gpu) { return Model.gpuMemoryPercent(gpu) !== null })
-          label: "Show VRAM in horizontal bar"
+          label: "Show VRAM in bar"
           indent: Style.space(12) + moduleSwitch.width + Style.space(12)
           checked: Model.flag(root.settings, "showGpuMemory")
           onToggled: root.set("showGpuMemory", !checked)

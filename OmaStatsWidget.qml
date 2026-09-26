@@ -52,7 +52,7 @@ Panel {
             diskShow: "",
             label: gpuReadouts.length > 1 ? Model.gpuShort(gpuReadouts[g]) : ""
           })
-          if (!vertical && Model.flag(settings, "showGpuMemory") && Model.gpuMemoryPercent(gpuReadouts[g]) !== null)
+          if (Model.flag(settings, "showGpuMemory") && Model.gpuMemoryPercent(gpuReadouts[g]) !== null)
             out.push({ id: "gpuMemory", gpuId: Model.gpuId(gpuReadouts[g]), label: "VRM" })
         }
         continue
