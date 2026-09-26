@@ -63,6 +63,7 @@ jobs:
           cargo clippy --locked --manifest-path sampler/Cargo.toml --target-dir /tmp/omastats-clippy -- -D warnings
           python scripts/test-launcher.py
           python scripts/test-gpu.py
+          python scripts/test-disks.py
           python - <<'PY'
           from pathlib import Path
           import json

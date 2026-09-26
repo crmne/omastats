@@ -48,7 +48,9 @@ narrow:
 - read-only system telemetry from `/proc` and `/sys`;
 - `nvidia-smi` for NVIDIA telemetry and `lspci` for a human-readable GPU name;
 - `ip` for interface addresses, `iw` for Wi-Fi details, and `ss` for TCP socket
-  counters; and
+  counters;
+- `zfs list` and `zpool list` for ZFS pool space and vdevs, only when a ZFS
+  dataset is mounted; and
 - `curl` to one of the three fixed IP-only HTTPS endpoints documented in the
   README, solely when public-IP display is enabled.
 

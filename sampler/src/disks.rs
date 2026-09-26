@@ -1,11 +1,12 @@
 use crate::util::{
-    bounded_text, hwmon_dirs, is_whole_disk, list_dir, rate, read_i64, read_text, round1,
+    bounded_text, hwmon_dirs, is_whole_disk, list_dir, rate, read_i64, read_text, round1, run,
     EXTERNAL_TEXT_LIMIT,
 };
 use serde_json::{json, Map, Value};
 use std::collections::HashMap;
 use std::ffi::CString;
 use std::path::Path;
+use std::time::Duration;
 
 const REAL_FS: [&str; 24] = [
     "ext2", "ext3", "ext4", "xfs", "btrfs", "f2fs", "vfat", "exfat", "ntfs", "ntfs3", "fuseblk",
@@ -48,6 +49,62 @@ fn statvfs(path: &str) -> Option<(u64, u64, u64)> {
     let free = stat.f_bfree as u64 * frsize;
     let avail = stat.f_bavail as u64 * frsize;
     Some((size, size.saturating_sub(free), avail))
+}
+
+/// Space and first leaf vdev for each imported ZFS pool.
+#[derive(Default)]
+struct ZfsPools {
+    space: HashMap<String, (u64, u64)>,
+    leaves: HashMap<String, String>,
+}
+
+impl ZfsPools {
+    fn query() -> Self {
+        Self {
+            space: parse_zfs_space(&run(
+                "zfs",
+                &["list", "-Hp", "-d", "0", "-o", "name,used,avail"],
+                Duration::from_secs(2),
+            )),
+            leaves: parse_zpool_leaves(&run(
+                "zpool",
+                &["list", "-HPv", "-o", "name"],
+                Duration::from_secs(2),
+            )),
+        }
+    }
+}
+
+/// Parse `zfs list -Hp -d 0 -o name,used,avail` into pool -> (used, avail).
+fn parse_zfs_space(raw: &str) -> HashMap<String, (u64, u64)> {
+    raw.lines()
+        .filter_map(|line| {
+            let mut fields = line.split('\t');
+            let name = fields.next()?;
+            let used = fields.next()?.parse().ok()?;
+            let avail = fields.next()?.parse().ok()?;
+            Some((name.to_string(), (used, avail)))
+        })
+        .collect()
+}
+
+/// Parse `zpool list -HPv -o name` into pool -> its first leaf device path.
+fn parse_zpool_leaves(raw: &str) -> HashMap<String, String> {
+    let mut leaves = HashMap::new();
+    let mut pool: Option<&str> = None;
+    for line in raw.lines() {
+        if !line.starts_with(char::is_whitespace) {
+            pool = Some(line.trim());
+            continue;
+        }
+        let path = line.trim();
+        if let Some(pool) = pool.filter(|_| path.starts_with('/')) {
+            leaves
+                .entry(pool.to_string())
+                .or_insert_with(|| path.to_string());
+        }
+    }
+    leaves
 }
 
 fn parent_disk(device: &str) -> String {
@@ -147,7 +204,16 @@ impl DiskSampler {
 
     fn scan_volumes(&self) -> Vec<Volume> {
         let mut volumes: HashMap<String, Volume> = HashMap::new();
-        for line in read_text("/proc/self/mounts").unwrap_or_default().lines() {
+        let mounts = read_text("/proc/self/mounts").unwrap_or_default();
+        let zfs = if mounts
+            .lines()
+            .any(|line| line.split_whitespace().nth(2) == Some("zfs"))
+        {
+            ZfsPools::query()
+        } else {
+            ZfsPools::default()
+        };
+        for line in mounts.lines() {
             if volumes.len() >= VOLUME_LIMIT {
                 break;
             }
@@ -158,8 +224,13 @@ impl DiskSampler {
             let device = parts[0];
             let mount = parts[1].replace("\\040", " ");
             let fstype = parts[2];
+            // A ZFS mount names a dataset, not a device; every dataset in a pool
+            // shares the pool's space, so the pool is the volume. Snapshots are
+            // skipped.
+            let pool = (fstype == "zfs" && !device.contains('@'))
+                .then(|| device.split('/').next().unwrap_or(device));
             if !REAL_FS.contains(&fstype)
-                || !device.starts_with('/')
+                || (pool.is_none() && !device.starts_with('/'))
                 || device.len() > PATH_TEXT_LIMIT
                 || mount.len() > PATH_TEXT_LIMIT
             {
@@ -178,19 +249,32 @@ impl DiskSampler {
             {
                 continue;
             }
-            let (size, used, avail) = match statvfs(&mount) {
+            let (mut size, mut used, mut avail) = match statvfs(&mount) {
                 Some(v) => v,
                 None => continue,
             };
             if size < 64 * 1024 * 1024 {
                 continue;
             }
+            let device = pool.unwrap_or(device);
             if let Some(existing) = volumes.get(device) {
                 if existing.mount.len() <= mount.len() {
                     continue;
                 }
             }
-            let disk = parent_disk(device);
+            if let Some(&(pool_used, pool_avail)) = pool.and_then(|p| zfs.space.get(p)) {
+                size = pool_used + pool_avail;
+                used = pool_used;
+                avail = pool_avail;
+            }
+            let disk = match pool {
+                Some(p) => zfs
+                    .leaves
+                    .get(p)
+                    .map(|leaf| parent_disk(leaf))
+                    .unwrap_or_default(),
+                None => parent_disk(device),
+            };
             let model = bounded_text(
                 &read_text(format!("/sys/block/{disk}/device/model"))
                     .filter(|m| !m.is_empty())
@@ -295,5 +379,25 @@ impl DiskSampler {
             "write": total_write,
             "perDisk": Value::Object(per_disk),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn zfs_space_is_read_per_pool() {
+        let space = parse_zfs_space("tank\t849022443520\t123012960256\nbad line\n");
+        assert_eq!(space.len(), 1);
+        assert_eq!(space["tank"], (849022443520, 123012960256));
+    }
+
+    #[test]
+    fn zpool_leaves_skip_group_vdevs() {
+        let raw = "tank\n\tmirror-0\n\t\t/dev/sda1\n\t\t/dev/sdb1\nfast\n\t/dev/nvme0n1p2\n";
+        let leaves = parse_zpool_leaves(raw);
+        assert_eq!(leaves["tank"], "/dev/sda1");
+        assert_eq!(leaves["fast"], "/dev/nvme0n1p2");
     }
 }

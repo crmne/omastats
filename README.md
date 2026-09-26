@@ -85,7 +85,9 @@ sampler is explicitly stopped when the plugin service is destroyed.
 Optional command-line tools, each used only for the feature named, and each
 degrading to "unavailable" when missing: `nvidia-smi` (NVIDIA GPU readings;
 AMD and Intel come from sysfs), `ip` and `iw` (addresses, Wi-Fi signal),
-`ss` from iproute2 (per-process network traffic), `curl` (public IP lookup),
+`ss` from iproute2 (per-process network traffic), `zfs` and `zpool` (a ZFS
+pool's space and the drive behind it, shown as one volume at its top-most
+mount; without them the space is that dataset's), `curl` (public IP lookup),
 `wl-copy` (copy an address), `xdg-open` (open a volume in your file manager).
 
 Nothing runs as root, and no data leaves the machine except the optional

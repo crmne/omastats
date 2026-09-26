@@ -757,6 +757,34 @@ def sample_memory() -> dict:
 # --------------------------------------------------------------------------- Disks
 
 
+def parse_zfs_space(raw: str) -> dict[str, tuple[int, int]]:
+    """Parse `zfs list -Hp -d 0 -o name,used,avail` into pool -> (used, avail)."""
+    space: dict[str, tuple[int, int]] = {}
+    for line in raw.splitlines():
+        fields = line.split("\t")
+        if len(fields) < 3:
+            continue
+        try:
+            space[fields[0]] = (int(fields[1]), int(fields[2]))
+        except ValueError:
+            continue
+    return space
+
+
+def parse_zpool_leaves(raw: str) -> dict[str, str]:
+    """Parse `zpool list -HPv -o name` into pool -> its first leaf device path."""
+    leaves: dict[str, str] = {}
+    pool = None
+    for line in raw.splitlines():
+        if line and not line[0].isspace():
+            pool = line.strip()
+            continue
+        path = line.strip()
+        if pool and path.startswith("/"):
+            leaves.setdefault(pool, path)
+    return leaves
+
+
 class DiskSampler:
     def __init__(self) -> None:
         self.prev: dict[str, tuple[int, int]] = {}
@@ -826,14 +854,24 @@ class DiskSampler:
 
     def _volumes(self) -> list[dict]:
         volumes: dict[str, dict] = {}
-        for line in read_text("/proc/self/mounts").splitlines():
+        mounts = read_text("/proc/self/mounts").splitlines()
+        zfs_space: dict[str, tuple[int, int]] = {}
+        zfs_leaves: dict[str, str] = {}
+        if any(line.split()[2:3] == ["zfs"] for line in mounts):
+            zfs_space = parse_zfs_space(run(["zfs", "list", "-Hp", "-d", "0", "-o", "name,used,avail"]))
+            zfs_leaves = parse_zpool_leaves(run(["zpool", "list", "-HPv", "-o", "name"]))
+        for line in mounts:
             parts = line.split()
             if len(parts) < 3:
                 continue
             device = bounded_text(parts[0], 4096)
             mount = bounded_text(parts[1].replace("\\040", " "), 4096)
             fstype = bounded_text(parts[2], 64)
-            if fstype not in REAL_FS or not device.startswith("/"):
+            # A ZFS mount names a dataset, not a device; every dataset in a pool
+            # shares the pool's space, so the pool is the volume. Snapshots are
+            # skipped.
+            pool = device.split("/")[0] if fstype == "zfs" and "@" not in device else None
+            if fstype not in REAL_FS or (pool is None and not device.startswith("/")):
                 continue
             if mount.startswith(("/proc", "/sys", "/dev", "/run/user", "/var/lib/docker", "/snap")):
                 continue
@@ -846,13 +884,19 @@ class DiskSampler:
                 continue
             avail = stat.f_bavail * stat.f_frsize
             used = size - stat.f_bfree * stat.f_frsize
-            key = device
+            key = device = pool or device
             existing = volumes.get(key)
             if existing and len(existing["mount"]) <= len(mount):
                 continue
             if existing is None and len(volumes) >= 256:
                 continue
-            disk = self._parent_disk(device)
+            if pool in zfs_space:
+                used, avail = zfs_space[pool]
+                size = used + avail
+            if pool is None:
+                disk = self._parent_disk(device)
+            else:
+                disk = self._parent_disk(zfs_leaves[pool]) if pool in zfs_leaves else ""
             model = bounded_text(
                 read_text(f"/sys/block/{disk}/device/model")
                 or read_text(f"/sys/block/{disk}/device/name")
