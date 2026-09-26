@@ -328,8 +328,9 @@ function diskShort(disk) {
 
 // Space used on one disk, or on every local disk for "all", summed over its
 // mounted volumes: {used, size, fraction}. Network mounts have no block
-// device behind them, so they never count; if no volume maps to a known
-// disk, "all" falls back to the root volume as 1.1 did.
+// device behind them, so they never count; a ZFS pool is local even when its
+// drive is unknown, so it does. If no volume maps to a known disk, "all"
+// falls back to the root volume as 1.1 did.
 function diskUsage(snapshot, disk) {
   var disks = (snapshot || {}).disks || {}
   var perDisk = disks.perDisk || {}
@@ -338,7 +339,7 @@ function diskUsage(snapshot, disk) {
   var size = 0
   for (var i = 0; i < volumes.length; i++) {
     var v = volumes[i]
-    if (disk === "all" ? !perDisk[v.disk] : v.disk !== disk) continue
+    if (disk === "all" ? !perDisk[v.disk] && v.fstype !== "zfs" : v.disk !== disk) continue
     used += num(v.used)
     size += num(v.size)
   }

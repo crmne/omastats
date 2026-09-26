@@ -124,3 +124,11 @@ test("disk space used sums a device's volumes and skips network mounts", () => {
     { disk: "dm-0", mount: "/", used: 3, size: 4 },
   ] } }, "all").fraction, 0.75);
 });
+
+test("a ZFS pool counts towards all disks even when its drive is unknown", () => {
+  const snapshot = { disks: { perDisk: { nvme0n1: {} }, volumes: [
+    { disk: "", fstype: "zfs", mount: "/", used: 80, size: 100 },
+    { disk: "nvme0n1", fstype: "vfat", mount: "/boot", used: 0, size: 100 },
+  ] } };
+  assert.deepEqual(plain(model.diskUsage(snapshot, "all")), { used: 80, size: 200, fraction: 0.4 });
+});
