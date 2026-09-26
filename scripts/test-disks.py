@@ -26,8 +26,24 @@ def statvfs(path):
 
 
 class DiskTests(unittest.TestCase):
-    def test_zpool_leaves_skip_group_vdevs(self):
-        self.assertEqual(NAMESPACE["parse_zpool_leaves"](ZPOOL_LIST), {"tank": "/dev/nvme0n1p2"})
+    def test_zpool_leaves_are_first_data_devices(self):
+        raw = ZPOOL_LIST + "\nlogs\n\t/dev/sdc1\nfast\n\t/dev/sda1\ncache\n\t/dev/sdd1\n"
+        self.assertEqual(NAMESPACE["parse_zpool_leaves"](raw),
+                         {"tank": "/dev/nvme0n1p2", "fast": "/dev/sda1"})
+
+    def test_zfs_space_takes_only_plain_byte_counts(self):
+        raw = ZFS_LIST + "bad line\nneg\t-5\t1\nsep\t1_000\t1\n"
+        self.assertEqual(NAMESPACE["parse_zfs_space"](raw), {"tank": (800, 200)})
+
+    def test_pool_without_zpool_output_keeps_its_space_and_no_drive(self):
+        outputs = {"zfs": ZFS_LIST, "zpool": ""}
+        sampler = NAMESPACE["DiskSampler"].__new__(NAMESPACE["DiskSampler"])
+        with patch("os.statvfs", statvfs), patch.dict(NAMESPACE, {
+            "read_text": lambda path, default="": MOUNTS if path == "/proc/self/mounts" else default,
+            "run": lambda cmd, timeout=2.0: outputs[cmd[0]],
+        }):
+            pool = sampler._volumes()[0]
+        self.assertEqual((pool["device"], pool["size"], pool["disk"]), ("tank", 1000, ""))
 
     def test_zfs_datasets_collapse_into_one_pool_volume(self):
         outputs = {"zfs": ZFS_LIST, "zpool": ZPOOL_LIST}

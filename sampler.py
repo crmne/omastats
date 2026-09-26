@@ -757,31 +757,52 @@ def sample_memory() -> dict:
 # --------------------------------------------------------------------------- Disks
 
 
+# Vdev classes `zpool list -v` lists after a pool's data vdevs. None of them
+# holds the pool's data, so their devices never stand for the pool.
+ZPOOL_CLASSES = ("logs", "cache", "spare", "special", "dedup")
+
+
+def zfs_pool(fstype: str, device: str) -> str | None:
+    """The pool behind a ZFS mount, or None for any other mount.
+
+    A ZFS mount names a dataset such as `tank/home`, not a device. Snapshot
+    mounts have no pool.
+    """
+    if fstype != "zfs" or "@" in device:
+        return None
+    return device.split("/")[0] or None
+
+
 def parse_zfs_space(raw: str) -> dict[str, tuple[int, int]]:
     """Parse `zfs list -Hp -d 0 -o name,used,avail` into pool -> (used, avail)."""
     space: dict[str, tuple[int, int]] = {}
     for line in raw.splitlines():
         fields = line.split("\t")
-        if len(fields) < 3:
+        if len(fields) < 3 or not fields[0] or len(fields[0]) > 4096:
             continue
-        try:
-            space[fields[0]] = (int(fields[1]), int(fields[2]))
-        except ValueError:
+        if not all(re.fullmatch(r"[0-9]+", field) for field in fields[1:3]):
             continue
+        space[fields[0]] = (int(fields[1]), int(fields[2]))
     return space
 
 
 def parse_zpool_leaves(raw: str) -> dict[str, str]:
-    """Parse `zpool list -HPv -o name` into pool -> its first leaf device path."""
+    """Parse `zpool list -HPv -o name` into pool -> the path of its first data device.
+
+    Pools are unindented and their vdevs indented.
+    """
     leaves: dict[str, str] = {}
     pool = None
     for line in raw.splitlines():
-        if line and not line[0].isspace():
-            pool = line.strip()
+        name = line.strip()
+        if not name or len(name) > 4096:
             continue
-        path = line.strip()
-        if pool and path.startswith("/"):
-            leaves.setdefault(pool, path)
+        if name in ZPOOL_CLASSES:
+            pool = None
+        elif not line[0].isspace():
+            pool = name
+        elif pool and name.startswith("/"):
+            leaves.setdefault(pool, name)
     return leaves
 
 
@@ -854,23 +875,20 @@ class DiskSampler:
 
     def _volumes(self) -> list[dict]:
         volumes: dict[str, dict] = {}
-        mounts = read_text("/proc/self/mounts").splitlines()
+        mounts = [line.split() for line in read_text("/proc/self/mounts").splitlines()]
+        mounts = [parts for parts in mounts if len(parts) >= 3]
         zfs_space: dict[str, tuple[int, int]] = {}
         zfs_leaves: dict[str, str] = {}
-        if any(line.split()[2:3] == ["zfs"] for line in mounts):
+        if any(zfs_pool(parts[2], parts[0]) for parts in mounts):
             zfs_space = parse_zfs_space(run(["zfs", "list", "-Hp", "-d", "0", "-o", "name,used,avail"]))
             zfs_leaves = parse_zpool_leaves(run(["zpool", "list", "-HPv", "-o", "name"]))
-        for line in mounts:
-            parts = line.split()
-            if len(parts) < 3:
-                continue
+        for parts in mounts:
             device = bounded_text(parts[0], 4096)
             mount = bounded_text(parts[1].replace("\\040", " "), 4096)
             fstype = bounded_text(parts[2], 64)
-            # A ZFS mount names a dataset, not a device; every dataset in a pool
-            # shares the pool's space, so the pool is the volume. Snapshots are
-            # skipped.
-            pool = device.split("/")[0] if fstype == "zfs" and "@" not in device else None
+            # Every dataset in a pool shares the pool's space, so the pool is the
+            # volume, at its shortest mount path.
+            pool = zfs_pool(fstype, device)
             if fstype not in REAL_FS or (pool is None and not device.startswith("/")):
                 continue
             if mount.startswith(("/proc", "/sys", "/dev", "/run/user", "/var/lib/docker", "/snap")):
@@ -884,8 +902,8 @@ class DiskSampler:
                 continue
             avail = stat.f_bavail * stat.f_frsize
             used = size - stat.f_bfree * stat.f_frsize
-            key = device = pool or device
-            existing = volumes.get(key)
+            device = pool or device
+            existing = volumes.get(device)
             if existing and len(existing["mount"]) <= len(mount):
                 continue
             if existing is None and len(volumes) >= 256:
@@ -902,7 +920,7 @@ class DiskSampler:
                 or read_text(f"/sys/block/{disk}/device/name")
             )
             rotational = read_int(f"/sys/block/{disk}/queue/rotational", 0) == 1
-            volumes[key] = {
+            volumes[device] = {
                 "mount": mount,
                 "device": device,
                 "fstype": fstype,
