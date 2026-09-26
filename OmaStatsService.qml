@@ -66,10 +66,13 @@ Item {
     // One utilisation series per card, keyed by PCI address, so a readout
     // keeps its own graph when the bar shows several GPUs.
     var gpuHistory = {}
+    var gpuMemoryHistory = {}
     for (var gi = 0; gi < gpuList.length; gi++) {
       var gpuKey = Model.gpuId(gpuList[gi]) || String(gi)
       var previousGpu = h.gpus && h.gpus[gpuKey] ? h.gpus[gpuKey] : []
       gpuHistory[gpuKey] = Model.pushNullableHistory(previousGpu, Model.gpuHasUtil(gpuList[gi]) ? gpuList[gi].util : null, n)
+      var previousMemory = h.gpuMemory && h.gpuMemory.gpus && h.gpuMemory.gpus[gpuKey] ? h.gpuMemory.gpus[gpuKey] : []
+      gpuMemoryHistory[gpuKey] = Model.pushNullableHistory(previousMemory, Model.gpuMemoryPercent(gpuList[gi]), n)
     }
     var diskHistory = {}
     for (var name in perDisk) {
@@ -86,6 +89,10 @@ Item {
       cpuTotal: Model.pushNullableHistory(h.cpuTotal, cpu.total, n),
       gpu: Model.pushNullableHistory(h.gpu, gpu && Model.gpuHasUtil(gpu) ? gpu.util : null, n),
       gpus: gpuHistory,
+      gpuMemory: {
+        gpu: Model.pushNullableHistory(h.gpuMemory && h.gpuMemory.gpu, Model.gpuMemoryPercent(gpu), n),
+        gpus: gpuMemoryHistory
+      },
       memUsed: Model.pushNullableHistory(h.memUsed, mem.total > 0 ? memPercent : null, n),
       memPressure: Model.pushHistory(h.memPressure, mem.pressureSome, n),
       netRx: Model.pushHistory(h.netRx, net.rx, n),

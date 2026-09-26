@@ -64,6 +64,8 @@ WidgetButton {
     return null
   }
   readonly property var gpuSeries: Model.gpuHistory(hist, gpuId || Model.gpuId(gpu))
+  readonly property var gpuMemorySeries: Model.gpuHistory(hist.gpuMemory, gpuId || Model.gpuId(gpu))
+  readonly property var gpuMemoryPercent: Model.gpuMemoryPercent(gpu)
   readonly property var mem: snap.mem || ({})
   readonly property var net: snap.net || ({})
   readonly property var disks: snap.disks || ({})
@@ -74,8 +76,9 @@ WidgetButton {
   readonly property real memPercent: mem.total > 0 ? mem.used / mem.total * 100 : 0
   readonly property real utilizationPercent: module === "cpu" ? Number(cpu.total)
     : (module === "gpu" ? (Model.gpuHasUtil(gpu) ? Number(gpu.util) : NaN)
+    : (module === "gpuMemory" ? (gpuMemoryPercent === null ? NaN : gpuMemoryPercent)
     : (module === "memory" ? (mem.total > 0 ? memPercent : NaN)
-    : (isDisk && diskUsed && diskUsage.size > 0 ? ringValue * 100 : NaN)))
+    : (isDisk && diskUsed && diskUsage.size > 0 ? ringValue * 100 : NaN))))
   readonly property color utilizationColor: Model.utilizationColor(settings, utilizationPercent, lightTheme) || s1
   readonly property color percentageColor: Model.utilizationColor(settings, utilizationPercent, lightTheme) || foreground
   readonly property bool charging: !!(battery && (battery.status === "Charging" || battery.status === "Full"))
@@ -131,6 +134,7 @@ WidgetButton {
       case "gpu":
         if (Model.gpuHasUtil(gpu)) return Model.percentText(gpu.util)
         return gpu ? Model.compactFreq(gpu.mhz) : "—"
+      case "gpuMemory": return gpuMemoryPercent === null ? "—" : Model.percentText(gpuMemoryPercent)
       case "memory": return Model.percentText(memPercent)
       case "battery": return battery ? Model.percentText(battery.percent) : "—"
       case "network": return "↑ " + Model.compactRate(net.tx)
@@ -176,11 +180,13 @@ WidgetButton {
         if (isFinite(Number(cpu.temp))) parts.push(Model.tempLongText(cpu.temp, temperatureUnit))
         return parts.join(" · ") + "\nLoad " + Model.loadText(cpu.load) + " · Up " + Model.uptimeText(cpu.uptime)
       case "gpu":
+      case "gpuMemory":
         if (!gpu) return "GPU not detected"
         parts.push(Model.gpuTitle(gpu) + (Model.gpuHasUtil(gpu) ? " " + Model.percentText(gpu.util) : ""))
         if (!Model.gpuHasUtil(gpu)) parts.push("load not reported")
         if (Model.freqText(gpu.mhz)) parts.push(Model.freqText(gpu.mhz))
         if (isFinite(Number(gpu.temp))) parts.push(Model.tempLongText(gpu.temp, temperatureUnit))
+        if (gpuMemoryPercent !== null) parts.push("VRAM " + Model.percentText(gpuMemoryPercent))
         if (gpu.memTotal > 0) parts.push(Model.pairText(gpu.memUsed, gpu.memTotal))
         return parts.join(" · ")
       case "memory":
@@ -372,8 +378,8 @@ WidgetButton {
       ceiling: 100
       series: root.module === "cpu"
         ? [root.hist.cpuUser || [], root.hist.cpuSystem || []]
-        : [root.module === "memory" ? (root.hist.memUsed || []) : root.gpuSeries]
-      colors: [root.s1, root.s2]
+        : [root.module === "memory" ? (root.hist.memUsed || []) : (root.module === "gpuMemory" ? root.gpuMemorySeries : root.gpuSeries)]
+      colors: root.module === "gpuMemory" ? [root.s2] : [root.s1, root.s2]
       sampleColors: {
         if (root.module === "cpu") {
           var grades = Model.utilizationHistoryColors(root.hist.cpuTotal, root.settings, root.lightTheme)
@@ -381,6 +387,7 @@ WidgetButton {
         }
         if (root.module === "memory") return [Model.utilizationHistoryColors(root.hist.memUsed, root.settings, root.lightTheme)]
         if (root.module === "gpu") return [Model.utilizationHistoryColors(root.gpuSeries, root.settings, root.lightTheme)]
+        if (root.module === "gpuMemory") return [Model.utilizationHistoryColors(root.gpuMemorySeries, root.settings, root.lightTheme)]
         return []
       }
       baselineColor: Util.alpha(root.foreground, 0.28)

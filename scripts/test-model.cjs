@@ -40,6 +40,22 @@ test("GPU selection and histories stay tied to PCI addresses", () => {
   assert.equal(model.gpuHasUtil({ util: 0 }), true);
 });
 
+test("optional GPU memory readout uses reported VRAM and opens GPU details", () => {
+  assert.equal(model.SETTINGS.showGpuMemory, false);
+  assert.equal(model.tabFor("gpuMemory"), "gpu");
+  assert.equal(model.moduleDef("gpuMemory").graph, true);
+  assert.equal(model.moduleDef("gpuMemory").label, "VRAM");
+  assert.equal(model.gpuMemoryPercent({ memUsed: 8, memTotal: 10 }), 80);
+  for (const gpu of [null, {}, { memUsed: null, memTotal: 10 },
+    { memUsed: 4, memTotal: 0 }, { memUsed: -1, memTotal: 10 }])
+    assert.equal(model.gpuMemoryPercent(gpu), null);
+  assert.deepEqual(plain(model.pushNullableHistory([80], null, 3)), [80, null]);
+  assert.deepEqual(plain(model.gpuHistory({ gpu: [18, 19], gpus: { "0000:01:00.0": [40, 41] } }, "")), [18, 19]);
+  const manifest = JSON.parse(fs.readFileSync(path.join(__dirname, "../manifest.json"), "utf8"));
+  assert.equal(manifest.barWidget.defaults.showGpuMemory, false);
+  assert.ok(manifest.barWidget.schema.some(setting => setting.key === "showGpuMemory"));
+});
+
 test("GPU titles stay concise without erasing generic AMD identity", () => {
   assert.equal(model.gpuTitle({ vendor: "nvidia", name: "NVIDIA GeForce RTX 3090" }), "NVIDIA RTX 3090");
   assert.equal(model.gpuTitle({ vendor: "amd", name: "Radeon Graphics" }), "AMD Radeon Graphics");

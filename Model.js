@@ -30,6 +30,7 @@ var SETTINGS = {
   barDisks: "",
   barSensors: "cpu",
   barGpus: "all",
+  showGpuMemory: false,
   temperatureUnit: "Celsius",
   refreshSeconds: 1,
   historySeconds: 240,
@@ -166,6 +167,13 @@ function gpuHistory(history, id) {
 // without the perf PMU, so an Intel readout carries clock and temperature.
 function gpuHasUtil(gpu) {
   return !!gpu && gpu.util !== null && gpu.util !== undefined && isFinite(Number(gpu.util))
+}
+
+function gpuMemoryPercent(gpu) {
+  if (!gpu || gpu.memUsed === null || gpu.memUsed === undefined || gpu.memTotal === null || gpu.memTotal === undefined) return null
+  var used = Number(gpu.memUsed)
+  var total = Number(gpu.memTotal)
+  return isFinite(used) && isFinite(total) && used >= 0 && total > 0 ? Math.min(100, used / total * 100) : null
 }
 
 // ---------------------------------------------------------------- sensors
@@ -499,6 +507,7 @@ function moveInList(list, id, delta) {
 }
 
 function moduleDef(id) {
+  if (id === "gpuMemory") return { id: "gpuMemory", icon: "V󰍛", short: "VRM", label: "VRAM", page: "GpuPage.qml", graph: true, ring: false }
   for (var i = 0; i < MODULES.length; i++) if (MODULES[i].id === id) return MODULES[i]
   return MODULES[0]
 }
@@ -509,7 +518,7 @@ function pageFile(tab) {
 
 // The panel tab that shows a given bar module. Every module has its own.
 function tabFor(module) {
-  return module
+  return module === "gpuMemory" ? "gpu" : module
 }
 
 function parseModules(raw) {
@@ -726,7 +735,7 @@ function linkSpeedText(iface) {
 
 function emptyHistory() {
   return {
-    cpuUser: [], cpuSystem: [], cpuTotal: [], gpu: [], gpus: {},
+    cpuUser: [], cpuSystem: [], cpuTotal: [], gpu: [], gpus: {}, gpuMemory: { gpus: {} },
     memUsed: [], memPressure: [],
     netRx: [], netTx: [], diskRead: [], diskWrite: [], disks: {},
     battery: [], batteryCharging: []

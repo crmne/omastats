@@ -58,6 +58,7 @@
       "barDisks": "",
       "barSensors": "cpu",
       "barGpus": "all",
+      "showGpuMemory": false,
       "barLabels": "text"
     },
     "schema": [
@@ -129,6 +130,13 @@
         "defaultValue": "all"
       },
       {
+        "key": "showGpuMemory",
+        "type": "boolean",
+        "label": "Show VRAM in horizontal bar",
+        "description": "Show a VRAM graph and percentage beside each selected GPU on horizontal bars when memory usage is reported.",
+        "defaultValue": false
+      },
+      {
         "key": "graphWidth",
         "type": "integer",
         "label": "Bar graph width",
@@ -184,7 +192,7 @@
         "key": "utilizationColors",
         "type": "boolean",
         "label": "Utilization colors",
-        "description": "Color CPU, GPU, memory and disk-capacity bar readouts by utilization grade.",
+        "description": "Color bar utilization and the GPU tab's load and VRAM histories by grade.",
         "defaultValue": false
       },
       {
