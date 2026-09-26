@@ -44,6 +44,7 @@ test("optional GPU memory readout uses reported VRAM and opens GPU details", () 
   assert.equal(model.SETTINGS.showGpuMemory, false);
   assert.equal(model.tabFor("gpuMemory"), "gpu");
   assert.equal(model.moduleDef("gpuMemory").graph, true);
+  assert.equal(model.moduleDef("gpuMemory").ring, true);
   assert.equal(model.moduleDef("gpuMemory").label, "VRAM");
   assert.equal(model.gpuMemoryPercent({ memUsed: 8, memTotal: 10 }), 80);
   for (const gpu of [null, {}, { memUsed: null, memTotal: 10 },

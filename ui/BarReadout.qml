@@ -95,6 +95,7 @@ WidgetButton {
     switch (module) {
       case "cpu": return Model.num(cpu.total) / 100
       case "gpu": return Model.gpuHasUtil(gpu) ? Model.num(gpu.util) / 100 : 0
+      case "gpuMemory": return gpuMemoryPercent === null ? 0 : gpuMemoryPercent / 100
       case "memory": return isFinite(memPercent) ? memPercent / 100 : 0
       case "battery": return battery ? Model.num(battery.percent) / 100 : 0
       case "disks": return diskUsage.fraction
@@ -104,7 +105,7 @@ WidgetButton {
   readonly property color ringColor: {
     if (module === "battery") return battery && charging ? (service ? service.good : s1) : (ringValue <= 0.15 ? (service ? service.danger : s1) : s1)
     if (module === "disks") return Model.utilizationColor(settings, utilizationPercent, lightTheme) || (ringValue >= 0.92 ? (service ? service.danger : s1) : (ringValue >= 0.8 ? (service ? service.warn : s1) : s1))
-    if (module === "cpu" || module === "gpu" || module === "memory") return utilizationColor
+    if (module === "cpu" || module === "gpu" || module === "gpuMemory" || module === "memory") return utilizationColor
     return s1
   }
 

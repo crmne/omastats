@@ -113,15 +113,16 @@ Open the panel and click the gear at the right end of the tab strip (or press `s
   figure. Disks get a readout for each device you tick (or all disks together),
   each showing read/write speed, space used, or both; the Sensors readout
   shows whichever temperatures and fans you tick. On horizontal bars, GPU
-  memory can show its own VRAM graph and percentage beside each selected GPU.
+  memory can get its own VRAM readout beside each selected GPU, drawn in the
+  GPU readout's look.
 - **Panel**: choose which tabs appear and which sections each page shows.
 - **General**: temperature unit, refresh interval (0.1 s to 10 s), history span,
   bar graph width, optional utilization colors, and a reset.
 
 Utilization colors are off by default. When enabled, they grade CPU, GPU load,
 GPU memory, and system memory bar figures and graph samples. The GPU tab's load
-and VRAM histories use the same grades. CPU, GPU load, system memory, and disk
-capacity rings are graded too, along with disk capacity figures. The displayed
+and VRAM histories use the same grades. CPU, GPU load, GPU memory, system memory,
+and disk capacity rings are graded too, along with disk capacity figures. The displayed
 rounded percentage selects low below 25%, normal 25–59%,
 warning 60–84%, or critical 85% and higher. Each grade accepts a `#RRGGBB`
 color. Disk and network transfer rates, battery, sensors, and other panel graphs
@@ -148,7 +149,7 @@ edited there by hand or through Setup → Plugins:
 | `disksSource`             | `all`                                     | Disks page activity: `all` or a device like `nvme0n1`     |
 | `barSensors`              | `cpu`                                     | Sensor readouts: `cpu`, `gpu`, or hwmon ids like `nct6687/fan1` |
 | `barGpus`                 | `all`                                     | Which GPUs get a readout: `all`, `none`, or PCI addresses like `0000:01:00.0` (pick them on the Settings page) |
-| `showGpuMemory`           | `false`                                   | Show VRAM graph and percentage beside each selected GPU on horizontal bars when available |
+| `showGpuMemory`           | `false`                                   | Show a VRAM readout, in the GPU readout's look, beside each selected GPU on horizontal bars when available |
 | `temperatureUnit`         | `Celsius`                                 | `Celsius` or `Fahrenheit`                                 |
 | `refreshSeconds`          | `1`                                       | Sampling interval: 0.1, 0.2, 0.5, 1, 2, 5 or 10           |
 | `historySeconds`          | `240`                                     | How far back the graphs reach, in seconds                 |

@@ -286,7 +286,8 @@ Panel {
         gpuId: modelData.gpuId
         shortLabel: modelData.label
         service: root.service
-        mode: modelData.id === "gpuMemory" ? "both" : root.styleFor(modelData.id)
+        // A VRAM readout looks like the GPU readout beside it.
+        mode: root.styleFor(modelData.id === "gpuMemory" ? "gpu" : modelData.id)
         graphWidth: root.graphWidth
         temperatureUnit: root.temperatureUnit
         disksSource: modelData.disk || "all"
