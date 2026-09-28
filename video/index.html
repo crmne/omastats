@@ -1,0 +1,768 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
+    <title>OmaStats launch</title>
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <style>
+      @font-face { font-family: "JBM"; src: url("assets/fonts/jbm-regular.ttf"); font-weight: 400; }
+      @font-face { font-family: "JBM"; src: url("assets/fonts/jbm-bold.ttf"); font-weight: 700; }
+      @font-face { font-family: "InterV"; src: url("assets/fonts/inter.ttf"); font-weight: 650 700; }
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body { width: 1920px; height: 1080px; overflow: hidden; background: #100c0c; }
+      #root { position: relative; width: 100%; height: 100%; overflow: hidden; font-family: "JBM", monospace; color: var(--fg);
+        --bg: #100c0c; --glow: #703a25; --bar: #2b2222; --panel: #2c2525; --fg: #f2eae8; --accent: #f48d70; --s2: #85dacc; --s3: #a7a3e8;
+        --warn: #f3c969; --danger: #e8717a; --good: #9ccf8a; }
+      #bg { position: absolute; inset: 0; background:
+        radial-gradient(1400px 900px at 0% 110%, var(--glow) 0%, transparent 60%),
+        radial-gradient(1200px 800px at 100% 0%, color-mix(in srgb, var(--glow) 30%, transparent) 0%, transparent 70%), var(--bg); }
+
+      /* ---------- world: the desktop at 1x logical pixels, framed by a camera ---------- */
+      #world { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; transform-origin: 0 0; }
+      .bar { position: absolute; left: 0; top: 0; width: 1920px; height: 26px; background: var(--bar); display: flex; align-items: center; padding: 0 10px; font-size: 12px; }
+      .bar .ws { display: flex; gap: 10px; font-weight: 700; }
+      .bar .ws span { opacity: .45; } .bar .ws span.on { opacity: 1; }
+      .bar .clock { position: absolute; left: 0; right: 0; text-align: center; font-weight: 700; }
+      .readouts { margin-left: auto; display: flex; align-items: center; height: 26px; position: relative; }
+      .tray { display: flex; gap: 14px; margin-left: 12px; font-size: 13px; }
+
+      /* one readout, sized like BarReadout.qml at scale 1 */
+      .ro { display: flex; align-items: center; gap: 4px; height: 26px; padding: 0 5px; position: relative; }
+      .stk { display: flex; flex-direction: column; font-size: 8px; font-weight: 700; line-height: 7px; width: 6px; text-align: center; }
+      .gly { font-size: 13px; line-height: 13px; }
+      .fig { width: 4ch; text-align: right; font-size: 12px; position: relative; white-space: pre; }
+      .rates { width: 6ch; font-size: 10px; line-height: 9.5px; display: flex; flex-direction: column; position: relative; white-space: pre; }
+      .rsv { position: absolute; inset: -1px; border: 0.6px dashed var(--accent); border-radius: 1px; opacity: 0; }
+      .pair { display: flex; align-items: center; gap: 3px; }
+      .ro canvas { display: block; }
+
+      /* ---------- panel ---------- */
+      .panel { position: absolute; top: 32px; width: 524px; border: 2px solid var(--accent); border-radius: 10px; background: var(--panel);
+        padding: 14px; overflow: hidden; box-shadow: 0 24px 60px rgba(0,0,0,.45); transform-origin: 50% 0; }
+      .tabs { display: flex; height: 28px; margin-bottom: 10px; }
+      .tabs div { flex: 1; margin: 0 2px; display: grid; place-items: center; font-size: 10px; font-weight: 700; opacity: .7; border-radius: 10px; border: 1px solid transparent; }
+      .tabs div.on { opacity: 1; background: color-mix(in srgb, var(--fg) 18%, transparent); border-color: color-mix(in srgb, var(--fg) 12%, transparent); }
+      .viewport { position: relative; overflow: hidden; }
+      .page { position: absolute; left: 0; top: 0; width: 100%; display: flex; flex-direction: column; gap: 10px; opacity: 0; }
+      .card { background: color-mix(in srgb, var(--fg) 3.5%, transparent); border: 1px solid color-mix(in srgb, var(--fg) 9%, transparent); border-radius: 10px; padding: 12px; display: flex; flex-direction: column; gap: 8px; }
+      .ch { display: flex; justify-content: space-between; align-items: baseline; }
+      .ch .t { color: var(--accent); font-size: 13px; font-weight: 700; }
+      .ch .d { font-size: 11px; opacity: .6; }
+      .st { color: var(--accent); font-size: 10px; font-weight: 700; letter-spacing: 1.1px; text-transform: uppercase; }
+      .ms b { font-weight: 700; } .ms i { font-style: normal; font-size: 10px; opacity: .55; font-weight: 400; }
+      .ms i.g { margin-left: 3px; }
+      .nb b { font-weight: 400; }
+      .lg { display: flex; gap: 12px; height: 18px; align-items: center; }
+      .lg > div { flex: 1; display: flex; align-items: center; font-size: 11px; }
+      .lg .l { opacity: .8; margin-left: 6px; } .lg .ms { margin-left: auto; font-size: 11px; }
+      .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+      .sr { display: flex; align-items: center; height: 20px; font-size: 12px; }
+      .sr .dot { margin-right: 7px; }
+      .sr .l { opacity: .85; } .sr .x { font-size: 10px; opacity: .45; margin-left: 6px; }
+      .sr .ms { margin-left: auto; }
+      .sr canvas { margin-left: 8px; }
+      .rings { display: flex; justify-content: center; }
+      .big { display: flex; justify-content: space-around; text-align: center; }
+      .big .ms b { font-size: 16px; } .big .ms i { font-size: 11px; } .big .c { font-size: 10px; opacity: .55; }
+      .ph { display: flex; align-items: center; height: 18px; }
+      .ph .sa { font-size: 10px; font-weight: 700; opacity: .5; margin-left: 10px; }
+      .ph .cols { margin-left: auto; display: flex; gap: 8px; } .ph .cols span { width: 70px; text-align: right; font-size: 10px; font-weight: 700; opacity: .5; }
+      .pr { display: flex; align-items: center; height: 20px; font-size: 12px; }
+      .pr .n { opacity: .9; } .pr .x { font-size: 10px; opacity: .4; margin-left: 6px; }
+      .pr .cols { margin-left: auto; display: flex; gap: 8px; } .pr .cols span { width: 70px; text-align: right; }
+      .cap { font-size: 10px; opacity: .45; line-height: 13px; }
+      .ifr { display: flex; align-items: center; height: 26px; font-size: 12px; }
+      .ifr .ic { width: 14px; font-size: 14px; } .ifr .nm { margin-left: 10px; } .ifr .rt { margin-left: auto; font-size: 11px; opacity: .6; }
+      .sep { height: 1px; background: color-mix(in srgb, var(--fg) 9%, transparent); }
+      .vol { display: flex; align-items: center; height: 34px; }
+      .vol .rg { position: relative; width: 24px; height: 24px; }
+      .vol .rg span { position: absolute; inset: 0; display: grid; place-items: center; font-size: 8px; font-weight: 700; opacity: .85; }
+      .vol .mid { margin-left: 10px; } .vol .mid b { font-size: 12px; display: block; } .vol .mid span { font-size: 10px; opacity: .55; }
+      .vol .rt { margin-left: auto; text-align: right; font-size: 12px; } .vol .rt .ms { opacity: .85; } .vol .rt span.f { display: block; font-size: 10px; opacity: .45; }
+      .fr { display: flex; align-items: center; height: 26px; font-size: 12px; }
+      .fr.b .l { font-weight: 700; }
+      .fr .l { opacity: .9; } .fr.off .l { opacity: .6; }
+      .sw { margin-left: auto; width: 34px; height: 18px; border-radius: 9px; background: color-mix(in srgb, var(--fg) 45%, transparent); position: relative; flex: none; }
+      .sw::after { content: ""; position: absolute; top: 3px; left: 19px; width: 12px; height: 12px; border-radius: 50%; background: var(--fg); }
+      .sw.off { background: color-mix(in srgb, var(--fg) 12%, transparent); } .sw.off::after { left: 3px; opacity: .5; }
+      .mod { display: flex; align-items: center; height: 26px; font-size: 12px; }
+      .mod .sw { margin-left: 0; } .mod .nm { margin-left: 12px; font-weight: 700; } .mod.off .nm { font-weight: 400; opacity: .5; }
+      .mod .arr { margin-left: auto; display: flex; gap: 8px; font-size: 13px; opacity: .7; }
+      .look { margin-left: 46px; }
+      .look .c { font-size: 10px; font-weight: 700; opacity: .5; margin-bottom: 3px; }
+      .dd { height: 26px; border: 1px solid color-mix(in srgb, var(--fg) 14%, transparent); border-radius: 8px; display: flex; align-items: center; padding: 0 10px; font-size: 12px; }
+      .dd .chev { margin-left: auto; opacity: .6; }
+      .ind { margin-left: 26px; }
+      .chips { margin-left: auto; display: flex; gap: 4px; } .chips span { font-size: 10px; padding: 3px 8px; border-radius: 6px; border: 1px solid color-mix(in srgb, var(--fg) 14%, transparent); opacity: .6; }
+      .chips span.on { opacity: 1; background: color-mix(in srgb, var(--fg) 18%, transparent); }
+      .stp { margin-left: auto; display: flex; align-items: center; gap: 4px; }
+      .stp .bt { width: 22px; height: 22px; border-radius: 6px; display: grid; place-items: center; background: color-mix(in srgb, var(--fg) 4%, transparent); font-size: 11px; }
+      .stp .v { width: 84px; height: 22px; display: grid; place-items: center; border: 1px solid color-mix(in srgb, var(--fg) 14%, transparent); border-radius: 6px; font-size: 12px; }
+      .btn { align-self: flex-end; font-size: 11px; padding: 5px 12px; border-radius: 8px; border: 1px solid color-mix(in srgb, var(--fg) 14%, transparent); }
+
+      /* ---------- overlays ---------- */
+      .scene { position: absolute; inset: 0; }
+      .head { font-family: "InterV", sans-serif; font-weight: 650; letter-spacing: -0.03em; line-height: 1.03; color: var(--fg); }
+      .sub { font-size: 30px; line-height: 1.5; color: color-mix(in srgb, var(--fg) 68%, transparent); }
+      .eyebrow { font-size: 22px; font-weight: 700; letter-spacing: .3em; color: var(--accent); }
+      .line { display: block; }
+      #cursor { position: absolute; left: 0; top: 0; width: 34px; height: 34px; opacity: 0; }
+      .callout { position: absolute; top: 500px; left: 0; width: 2px; height: 0; }
+      .callout .tick { position: absolute; left: -1px; top: 0; width: 2px; height: 50px; background: var(--accent); }
+      .callout .txt { position: absolute; top: 66px; left: -600px; width: 1200px; text-align: center; font-size: 34px; font-weight: 700; white-space: pre; }
+      .callout .txt span { color: color-mix(in srgb, var(--fg) 65%, transparent); font-weight: 400; }
+      .keys { display: flex; align-items: center; gap: 12px; font-size: 22px; color: color-mix(in srgb, var(--fg) 60%, transparent); }
+      .key { min-width: 52px; height: 52px; padding: 0 14px; border-radius: 10px; border: 2px solid color-mix(in srgb, var(--fg) 20%, transparent);
+        background: color-mix(in srgb, var(--fg) 6%, transparent); display: grid; place-items: center; font-size: 24px; font-weight: 700; color: var(--fg); box-shadow: 0 4px 0 color-mix(in srgb, var(--fg) 20%, transparent); }
+      .pcap { position: absolute; left: 0; top: 0; width: 960px; opacity: 0; }
+      .pcap .head { font-size: 110px; }
+      .pcap .sub { margin-top: 28px; font-size: 34px; }
+      #s-out { display: flex; flex-direction: column; align-items: center; justify-content: center; }
+      #s-out .mark { font-family: "InterV", sans-serif; font-weight: 700; font-size: 190px; letter-spacing: -0.045em; display: flex; align-items: center; gap: 34px; }
+      #s-out .mark canvas { display: block; }
+      #s-out .tag { font-size: 34px; color: color-mix(in srgb, var(--fg) 68%, transparent); margin-top: 10px; }
+      #s-out .cmd { margin-top: 64px; background: color-mix(in srgb, var(--fg) 6%, transparent); border: 1px solid color-mix(in srgb, var(--fg) 14%, transparent); border-radius: 14px; padding: 24px 34px; font-size: 29px; width: 1270px; height: 88px; white-space: pre; }
+      #s-out .cmd .p { color: var(--accent); }
+      #s-out .caret { display: inline-block; width: 15px; height: 32px; background: var(--accent); vertical-align: -6px; margin-left: 2px; }
+      #s-out .url { margin-top: 40px; font-size: 30px; color: var(--accent); font-weight: 700; letter-spacing: .04em; }
+    </style>
+  </head>
+  <body>
+    <div id="root" data-composition-id="main" data-start="0" data-duration="51" data-width="1920" data-height="1080">
+      <div id="bg"></div>
+
+      <!-- the desktop: bar and panel at 1x, framed by a camera -->
+      <div id="stage" class="clip" data-start="0" data-duration="51" data-track-index="0" style="position:absolute;inset:0">
+        <div id="world">
+          <div class="bar" id="bar">
+            <div class="ws"><span class="on">1</span><span>2</span><span>3</span><span>4</span><span>5</span></div>
+            <div class="clock">Monday 13:02</div>
+            <div class="readouts" id="readouts"></div>
+            <div class="tray"><span>󰂯</span><span>󰕾</span><span>󰤨</span></div>
+          </div>
+          <div class="panel" id="panel">
+            <div class="tabs" id="tabs"></div>
+            <div class="viewport" id="viewport"></div>
+          </div>
+        </div>
+        <svg id="cursor" viewBox="0 0 24 24"><path d="M4 2 L4 19 L8.6 14.8 L11.6 21.6 L14.6 20.3 L11.7 13.6 L18 13.3 Z" fill="#fff" stroke="#111" stroke-width="1.4" stroke-linejoin="round"/></svg>
+      </div>
+
+      <!-- 1: hook -->
+      <div id="s-hook" class="scene clip" data-start="0" data-duration="4.7" data-track-index="1">
+        <div class="head" id="hook1" style="position:absolute;left:0;right:0;top:640px;text-align:center;font-size:120px">Your machine's vital signs.</div>
+        <div class="head" id="hook2" style="position:absolute;left:0;right:0;top:150px;text-align:center;font-size:96px">Live in the Omarchy bar.</div>
+      </div>
+
+      <!-- 2: the bar, readout by readout -->
+      <div id="s-bar" class="scene clip" data-start="4.4" data-duration="9.6" data-track-index="1">
+        <div class="head" id="barhead" style="position:absolute;left:0;right:0;top:150px;text-align:center;font-size:96px">Live in the Omarchy bar.</div>
+        <div class="callout" id="callout"><div class="tick"></div><div class="txt" id="calltxt"></div></div>
+        <div id="jit" style="position:absolute;left:0;right:0;top:560px;text-align:center;opacity:0">
+          <div class="head" style="font-size:72px">Every figure keeps its width.</div>
+          <div class="sub" style="margin-top:18px">The numbers change. The bar stays put.</div>
+        </div>
+      </div>
+
+      <!-- 3: looks -->
+      <div id="s-look" class="scene clip" data-start="14" data-duration="4.4" data-track-index="1">
+        <div id="lookhead" style="position:absolute;left:0;right:0;top:150px;text-align:center"><div class="head" style="font-size:88px">A look for every readout.</div></div>
+        <div id="lookfield" style="position:absolute;left:0;right:0;top:330px;display:flex;justify-content:center"></div>
+        <div id="chipwrap" style="position:absolute;left:0;top:520px;width:1920px;height:200px;display:flex;justify-content:center;align-items:center">
+          <div id="chipbar" style="height:26px;background:var(--bar);border-radius:5px;display:flex;align-items:center;padding:0 3px;transform-origin:50% 50%"></div>
+        </div>
+        <div id="labchips" style="position:absolute;left:0;right:0;top:840px;display:flex;justify-content:center;gap:16px;align-items:center;font-size:26px;opacity:0">
+          <span style="opacity:.6;margin-right:10px">Bar labels</span><span class="key" id="lk1">Letters</span><span class="key" id="lk2" style="opacity:.45">Icons</span>
+        </div>
+      </div>
+
+      <!-- 4: vertical bars -->
+      <div id="s-vert" class="scene clip" data-start="18.4" data-duration="2.9" data-track-index="1">
+        <div id="vwrap" style="position:absolute;left:0;top:0;width:67px;height:1080px">
+          <div id="vbar" style="position:absolute;left:0;top:0;width:28px;height:450px;background:var(--bar);transform:scale(2.4);transform-origin:0 0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px"></div>
+        </div>
+        <div id="vcopy" style="position:absolute;left:300px;top:380px">
+          <div class="eyebrow">NEW IN 1.4</div>
+          <div class="head" style="font-size:104px;margin-top:26px"><span class="line">Vertical bars</span><span class="line">show data too.</span></div>
+        </div>
+      </div>
+
+      <!-- 5: panel tour captions -->
+      <div id="s-tour" class="scene clip" data-start="21.1" data-duration="21.1" data-track-index="1">
+        <div id="pcaps" style="position:absolute;left:110px;top:330px;width:960px;height:420px"></div>
+        <div class="keys" id="keys" style="position:absolute;left:110px;top:820px;opacity:0">
+          <div class="key" id="k-h">h</div><div class="key" id="k-l">l</div><span>switch tabs</span>
+          <div class="key" id="k-s" style="margin-left:26px">s</div><span>settings</span>
+        </div>
+      </div>
+
+      <!-- 6: themes -->
+      <div id="s-theme" class="scene clip" data-start="42.1" data-duration="3.4" data-track-index="1">
+        <div id="thcopy" style="position:absolute;left:110px;top:600px">
+          <div class="head" style="font-size:96px"><span class="line">Colours follow</span><span class="line">your theme.</span></div>
+          <div style="margin-top:34px;height:44px;position:relative;font-size:30px;font-weight:700;color:var(--accent)">
+            <span id="tn1" style="position:absolute;opacity:0">Tokyo Night</span><span id="tn2" style="position:absolute;opacity:0">Gruvbox</span><span id="tn3" style="position:absolute;opacity:0">Rosé Pine Dawn</span></div>
+        </div>
+      </div>
+
+      <!-- 7: outro -->
+      <div id="s-out" class="scene clip" data-start="45.4" data-duration="5.6" data-track-index="1">
+        <div class="mark" id="mark"><canvas id="logo" data-w="150" data-h="150" data-ss="2"></canvas><span>OmaStats</span></div>
+        <div class="tag" id="tag">Stats, sensors and activity, right in the bar.</div>
+        <div class="cmd" id="cmd"><span class="p">$ </span><span id="cmdtext"></span><span class="caret" id="caret"></span></div>
+        <div class="url" id="url">github.com/crmne/omastats</div>
+      </div>
+
+      <audio id="soundtrack" src="assets/soundtrack.wav" data-start="0" data-duration="51" data-track-index="5" data-volume="1"></audio>
+    </div>
+
+    <script>
+// OmaStats launch film. Everything on screen is a pure function of time t:
+// render(t) draws the bar, the panel and the camera; GSAP drives the fades.
+
+// ---------------------------------------------------------------- utilities
+const $ = id => document.getElementById(id);
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+function hash(n) { const s = Math.sin(n * 127.1 + 311.7) * 43758.5453; return s - Math.floor(s); }
+function noise(x, seed) { const i = Math.floor(x), f = x - i, u = f * f * (3 - 2 * f);
+  return hash(i + seed * 101.3) * (1 - u) + hash(i + 1 + seed * 101.3) * u; }
+const ease = p => p < 0.5 ? 4 * p * p * p : 1 - Math.pow(-2 * p + 2, 3) / 2;
+const RATE = 2;           // samples per second: the panel's 0.5 s refresh
+
+// ---------------------------------------------------------------- themes
+const THEMES = {
+  warm:  { bg:"#100c0c", glow:"#703a25", bar:"#231b1b", panel:"#2c2525", fg:"#f2eae8", accent:"#f48d70", s2:"#85dacc", s3:"#a7a3e8", warn:"#f3c969", danger:"#e8717a", good:"#9ccf8a" },
+  tokyo: { bg:"#13141f", glow:"#2a3470", bar:"#16161e", panel:"#1f2335", fg:"#c0caf5", accent:"#7aa2f7", s2:"#bb9af7", s3:"#7dcfff", warn:"#e0af68", danger:"#f7768e", good:"#9ece6a" },
+  gruv:  { bg:"#1d2021", glow:"#5a3a12", bar:"#1d2021", panel:"#282828", fg:"#ebdbb2", accent:"#fe8019", s2:"#83a598", s3:"#d3869b", warn:"#fabd2f", danger:"#fb4934", good:"#b8bb26" },
+  dawn:  { bg:"#f2e9e1", glow:"#ebbcba", bar:"#faf4ed", panel:"#fffaf3", fg:"#575279", accent:"#d7827e", s2:"#56949f", s3:"#907aa9", warn:"#ea9d34", danger:"#b4637a", good:"#286983" },
+};
+const THEME_KEYS = [[0,"warm"],[42.9,"tokyo"],[43.6,"gruv"],[44.3,"dawn"],[45.0,"warm"]];
+const rgbOf = c => c[0] === "#" ? [1,3,5].map(i => parseInt(c.slice(i, i + 2), 16)) : c.match(/\d+/g).slice(0, 3).map(Number);
+const mix = (a, b, p) => { const A = rgbOf(a), B = rgbOf(b); return "rgb(" + A.map((v, i) => Math.round(v + (B[i] - v) * p)).join(",") + ")"; };
+const alpha = (c, a) => "rgba(" + rgbOf(c).join(",") + "," + a + ")";
+function themeAt(t) {
+  let cur = THEMES.warm, prev = cur, p = 1;
+  THEME_KEYS.forEach(([at, key], i) => { if (t >= at) { prev = i ? THEMES[THEME_KEYS[i - 1][1]] : THEMES[key]; cur = THEMES[key]; p = i ? clamp((t - at) / 0.35, 0, 1) : 1; } });
+  p = p * p * (3 - 2 * p);
+  const o = {}; for (const k in cur) o[k] = p >= 1 ? cur[k] : mix(prev[k], cur[k], p); return o;
+}
+
+// ---------------------------------------------------------------- data (per sample k)
+const KB = 1024;
+const D = {
+  cpuUser: k => 100 * clamp(0.13 + 0.2 * noise(k * .18, 1) + 0.5 * Math.max(0, noise(k * .07, 11) - .6) + .05 * (hash(k + 1) - .5), .01, .9),
+  cpuSys:  k => 100 * clamp(0.05 + 0.07 * noise(k * .2, 2) + .03 * (hash(k + 2) - .5), .01, .4),
+  gpu:     k => 100 * clamp(0.22 + 0.45 * noise(k * .12, 3) + .06 * (hash(k + 3) - .5), .02, .98),
+  vram:    k => 30 + 22 * noise(k * .04, 4) + 3 * noise(k * .3, 44),
+  mem:     k => 41 + 2.5 * noise(k * .04, 5),
+  rx:      k => KB * Math.pow(10, 1.9 + 2.0 * Math.pow(noise(k * .15, 6), 1.2) + .25 * (hash(k + 6) - .5)),
+  tx:      k => KB * Math.pow(10, 0.9 + 1.5 * Math.pow(noise(k * .17, 7), 1.5) + .3 * (hash(k + 7) - .5)),
+  rd:      k => KB * Math.pow(10, 0.6 + 3.4 * Math.pow(noise(k * .1, 8), 2.2)),
+  wr:      k => KB * Math.pow(10, 0.5 + 3.0 * Math.pow(noise(k * .13, 9), 2.4)),
+  ctemp:   k => 62 + 12 * noise(k * .06, 10),
+  gtemp:   k => 54 + 7 * noise(k * .05, 12),
+  core:    (k, i) => 100 * clamp(0.1 + 0.55 * noise(k * .2, 30 + i) + .1 * (hash(k * 7 + i) - .5), .01, .99),
+  battery: k => 76,
+  charge:  k => 38 + k * 0.004,
+};
+// compactRate prints 1000–1023 KB as "1000K", wider than the "↓ 999K" reserve; keep the demo data out of that band
+const tidy = v => v >= 1000 * 1024 && v < 1024 * 1024 ? 990 * 1024 : v;
+["rx", "tx", "rd", "wr"].forEach(key => { const f = D[key]; D[key] = k => tidy(f(k)); });
+const hist = (fn, k, n) => { const a = []; for (let i = n - 1; i >= 0; i--) a.push(fn(k - i)); return a; };
+
+// Model.js formatting
+const BYTE_UNITS = ["B", "KB", "MB", "GB", "TB"];
+function bytesParts(n) { let v = Math.max(0, n), i = 0; while (v >= 1024 && i < 4) { v /= 1024; i++; }
+  return { value: i <= 1 || v >= 100 ? String(Math.round(v)) : v.toFixed(1), unit: BYTE_UNITS[i] }; }
+const compactRate = n => n < 512 ? "0" : (p => p.value + p.unit.charAt(0))(bytesParts(n));
+const rateParts = n => (p => ({ value: p.value, unit: p.unit + "/s" }))(bytesParts(n));
+const pct = v => Math.round(clamp(v, 0, 100)) + "%";
+
+// ---------------------------------------------------------------- canvases
+const CV = new Map();
+function canvas(w, h, ss) { const c = document.createElement("canvas"); c.width = Math.round(w * ss); c.height = Math.round(h * ss);
+  c.style.width = w + "px"; c.style.height = h + "px"; const ctx = c.getContext("2d"); ctx.scale(ss, ss); CV.set(c, { ctx, w, h }); return c; }
+function registerCanvases(scope) {
+  scope.querySelectorAll("canvas[data-w]").forEach(c => { if (CV.has(c)) return; const w = +c.dataset.w, h = +c.dataset.h, ss = +(c.dataset.ss || 3);
+    c.width = w * ss; c.height = h * ss; c.style.width = w + "px"; c.style.height = h + "px"; const ctx = c.getContext("2d"); ctx.scale(ss, ss); CV.set(c, { ctx, w, h }); });
+}
+const cvs = el => { const c = CV.get(el); c.ctx.clearRect(0, 0, c.w, c.h); return c; };
+
+// HistoryGraph.qml: thin bars, newest at the right, series stacked upward
+function drawHistory(el, series, colors, o) {
+  const c = cvs(el), ctx = c.ctx, bw = o.bw, gap = o.gap, pitch = bw + gap, n = Math.floor((c.w + gap) / pitch);
+  const max = o.ceiling || 100, usable = c.h - 1;
+  for (let b = 0; b < n; b++) {
+    const idx = series[0].length - n + b; if (idx < 0) continue;
+    const x = c.w - (n - b) * pitch + gap; let y = c.h - 1;
+    series.forEach((s, j) => { const v = s[idx]; if (!(v > 0)) return; const h = Math.max(1, Math.round(Math.min(usable, v / max * usable)));
+      ctx.fillStyle = o.sampleColor ? o.sampleColor(idx, j) : colors[j]; ctx.fillRect(x, y - h, bw, h); y -= h; });
+  }
+  ctx.fillStyle = o.baseline; ctx.fillRect(0, c.h - 1, c.w, 1);
+}
+// MirrorGraph.qml: up from the midline, down below it, one shared scale
+function drawMirror(el, up, down, upColor, downColor, o) {
+  const c = cvs(el), ctx = c.ctx, bw = o.bw, gap = o.gap, pitch = bw + gap, n = Math.floor((c.w + gap) / pitch);
+  const win = a => a.slice(Math.max(0, a.length - n)); const mid = Math.round(c.h / 2), half = Math.max(1, mid - 1);
+  const max = Math.max(o.floor, ...win(up), ...win(down)) * 1.08;
+  const paint = (list, color, dir) => { ctx.fillStyle = color;
+    for (let b = 0; b < n; b++) { const idx = list.length - n + b; if (idx < 0) continue; const v = list[idx]; if (!(v > 0)) continue;
+      const h = Math.max(1, Math.round(Math.min(half, v / max * half))), x = c.w - (n - b) * pitch + gap;
+      if (dir < 0) ctx.fillRect(x, mid - h, bw, h); else ctx.fillRect(x, mid + 1, bw, h); } };
+  paint(up, upColor, -1); paint(down, downColor, 1);
+  ctx.fillStyle = o.midline; ctx.fillRect(0, mid, c.w, 1);
+}
+// RingGauge / MiniRing: from twelve o'clock, clockwise
+function drawRing(el, segs, thick, track, roundCap = true) {
+  const c = cvs(el), ctx = c.ctx, r = Math.min(c.w, c.h) / 2 - thick / 2, cx = c.w / 2, cy = c.h / 2;
+  ctx.lineWidth = thick; ctx.lineCap = "butt"; ctx.strokeStyle = track; ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.stroke();
+  const multi = segs.length > 1, gap = multi ? 2 / r : 0; let a = -Math.PI / 2;
+  segs.forEach(([v, col]) => { v = clamp(v, 0, 1); if (v < 0.004) return; const b = a + v * Math.PI * 2;
+    ctx.lineCap = multi || !roundCap ? "butt" : "round"; ctx.strokeStyle = col; ctx.beginPath(); ctx.arc(cx, cy, r, a + gap / 2, b - gap / 2); ctx.stroke(); a = b; });
+}
+
+// ---------------------------------------------------------------- bar readouts (BarReadout.qml)
+const MOD = {
+  cpu:  { short: "CPU", icon: "󰻠", graph: true, ring: true },
+  gpu:  { short: "NVD", icon: "󰢮", graph: true, ring: true },
+  vram: { short: "VRM", icon: "V󰍛", graph: true, ring: true },
+  mem:  { short: "MEM", icon: "󰍛", graph: true, ring: true },
+  dsk:  { short: "DSK", icon: "󰋊", graph: true, ring: true, two: true },
+  net:  { short: "NET", icon: "󰛳", graph: true, ring: false, two: true },
+  sen:  { short: "SEN", icon: "󰔏", graph: false, ring: false },
+  bat:  { short: "BAT", icon: "󰂄", graph: false, ring: true },
+};
+function stack(text) { const s = document.createElement("div"); s.className = "stk"; text.split("").forEach(ch => { const e = document.createElement("span"); e.textContent = ch; s.appendChild(e); }); return s; }
+function label(mod, labels, short) { if (labels === "icon") { const g = document.createElement("div"); g.className = "gly"; g.textContent = MOD[mod].icon; return g; } return stack(short || MOD[mod].short); }
+function figBox(cls) { const f = document.createElement("div"); f.className = cls; const txt = document.createElement("span"); f.appendChild(txt);
+  if (cls === "rates") { const b = document.createElement("span"); f.appendChild(b); } const r = document.createElement("div"); r.className = "rsv"; f.appendChild(r); return f; }
+const pctValue = { cpu: k => D.cpuUser(k) + D.cpuSys(k), gpu: D.gpu, vram: D.vram, mem: D.mem, bat: D.battery };
+
+function makeReadout(mod, look = "both", labels = "text", ss = 10) {
+  const def = MOD[mod], el = document.createElement("div"); el.className = "ro"; el.dataset.m = mod;
+  const draws = [];
+  if (mod === "sen") {
+    [["CPU", "󰻠", D.ctemp], ["NVD", "󰢮", D.gtemp]].forEach(([s, ic, fn]) => {
+      const p = document.createElement("div"); p.className = "pair";
+      if (labels === "icon") { const g = document.createElement("div"); g.className = "gly"; g.textContent = ic; p.appendChild(g); } else p.appendChild(stack(s));
+      const f = figBox("fig"); p.appendChild(f); el.appendChild(p);
+      draws.push((T, k) => { f.firstChild.textContent = Math.round(fn(k)) + "°"; });
+    });
+    return { el, draw: (T, k) => draws.forEach(d => d(T, k)) };
+  }
+  el.appendChild(label(mod, labels));
+  const disk = mod === "dsk";
+  const showGraph = def.graph && (disk ? look !== "text" : (look === "both" || look === "graph"));
+  const showRing = !def.two && def.ring && (look === "ring" || look === "ring-text");
+  const showText = look === "both" || look === "text" || look === "ring-text" || (!def.graph && !def.ring);
+  if (showGraph) {
+    const g = canvas(36, 15, ss); el.appendChild(g);
+    if (def.two) {
+      const [up, dn, floor] = mod === "net" ? [D.tx, D.rx, 10240] : [D.rd, D.wr, 262144];
+      draws.push((T, k) => drawMirror(g, hist(up, k, 18), hist(dn, k, 18), T.s2, T.accent, { bw: 1, gap: 1, floor, midline: alpha(T.fg, .32) }));
+    } else if (mod === "cpu") {
+      draws.push((T, k) => drawHistory(g, [hist(D.cpuUser, k, 18), hist(D.cpuSys, k, 18)], [T.accent, T.s2], { bw: 1, gap: 1, baseline: alpha(T.fg, .28) }));
+    } else {
+      const fn = pctValue[mod];
+      draws.push((T, k) => drawHistory(g, [hist(fn, k, 18)], [mod === "vram" ? T.s2 : T.accent], { bw: 1, gap: 1, baseline: alpha(T.fg, .28) }));
+    }
+  }
+  if (showRing) {
+    const r = canvas(16, 16, ss); el.appendChild(r);
+    draws.push((T, k) => drawRing(r, [[pctValue[mod](k) / 100, mod === "bat" ? T.good : T.accent]], 2.4, alpha(T.fg, .22)));
+  }
+  if (def.two && (disk ? look !== "graph" : showText)) {
+    const f = figBox("rates"); el.appendChild(f);
+    const [a, b] = mod === "net" ? [k => "↑ " + compactRate(D.tx(k)), k => "↓ " + compactRate(D.rx(k))] : [k => "R " + compactRate(D.rd(k)), k => "W " + compactRate(D.wr(k))];
+    draws.push((T, k) => { f.children[0].textContent = a(k); f.children[1].textContent = b(k); });
+  } else if (showText && !def.two) {
+    const f = figBox("fig"); el.appendChild(f);
+    draws.push((T, k) => { f.firstChild.textContent = pct(pctValue[mod](k)); });
+  }
+  return { el, draw: (T, k) => draws.forEach(d => d(T, k)) };
+}
+
+// Vertical bar cell: label across, picture, figure under it
+function makeVertical(mod, ss = 8) {
+  const def = MOD[mod], el = document.createElement("div");
+  el.style.cssText = "width:22px;display:flex;flex-direction:column;align-items:center;gap:2px;padding:3px 0";
+  const lab = document.createElement("div"); lab.style.cssText = "font-size:9px;font-weight:700;line-height:10px"; lab.textContent = mod === "sen" ? "CPU" : def.short; el.appendChild(lab);
+  const draws = [];
+  if (def.graph) {
+    const g = canvas(22, 8, ss); el.appendChild(g);
+    if (def.two) { const [up, dn, floor] = mod === "net" ? [D.tx, D.rx, 10240] : [D.rd, D.wr, 262144];
+      draws.push((T, k) => drawMirror(g, hist(up, k, 11), hist(dn, k, 11), T.s2, T.accent, { bw: 1, gap: 1, floor, midline: alpha(T.fg, .32) })); }
+    else if (mod === "cpu") draws.push((T, k) => drawHistory(g, [hist(D.cpuUser, k, 11), hist(D.cpuSys, k, 11)], [T.accent, T.s2], { bw: 1, gap: 1, baseline: alpha(T.fg, .28) }));
+    else draws.push((T, k) => drawHistory(g, [hist(pctValue[mod], k, 11)], [mod === "vram" ? T.s2 : T.accent], { bw: 1, gap: 1, baseline: alpha(T.fg, .28) }));
+  } else if (def.ring) { const r = canvas(14, 14, ss); el.appendChild(r); draws.push((T, k) => drawRing(r, [[D.battery(k) / 100, T.good]], 2.4, alpha(T.fg, .22))); }
+  const mk = (color) => { const f = document.createElement("div"); f.style.cssText = "font-size:8px;line-height:9px;text-align:center;white-space:pre;color:" + color; el.appendChild(f); return f; };
+  if (def.two) { const a = mk("var(--s2)"), b = mk("var(--accent)");
+    draws.push((T, k) => { a.textContent = compactRate(mod === "net" ? D.tx(k) : D.rd(k)); b.textContent = compactRate(mod === "net" ? D.rx(k) : D.wr(k)); }); }
+  else { const f = mk("var(--fg)"); f.style.fontSize = "9px"; draws.push((T, k) => { f.textContent = mod === "sen" ? Math.round(D.ctemp(k)) + "°" : pct(pctValue[mod](k)); }); }
+  return { el, draw: (T, k) => draws.forEach(d => d(T, k)) };
+}
+
+// ---------------------------------------------------------------- panel pages (from ui/*Page.qml)
+const M = (v, u, id, cls = "") => `<span class="ms ${cls}"><b${id ? ` id="${id}"` : ""}>${v}</b>${u ? `<i class="${["%", "°"].includes(u) ? "" : "g"}">${u}</i>` : ""}</span>`;
+const dot = c => `<i class="dot" style="background:${c}"></i>`;
+const card = (inner, extra = "") => `<div class="card" ${extra}>${inner}</div>`;
+const ch = (t, d, id) => `<div class="ch"><span class="t">${t}</span><span class="d"${id ? ` id="${id}"` : ""}>${d}</span></div>`;
+const st = t => `<div class="st">${t}</div>`;
+const lg = items => `<div class="lg">${items.map(([c, l, v]) => `<div>${dot(c)}<span class="l">${l}</span>${v || ""}</div>`).join("")}</div>`;
+const sr = (o) => `<div class="sr">${o.dot !== undefined ? dot(o.dot) : ""}<span class="l" ${o.lo ? `style="opacity:${o.lo}"` : ""}>${o.l}</span>${o.x ? `<span class="x">${o.x}</span>` : ""}${o.v !== undefined ? `<span class="ms ${o.nb ? "nb" : ""}"><b${o.id ? ` id="${o.id}"` : ""}>${o.v}</b>${o.u ? `<i class="${["%", "°"].includes(o.u) ? "" : "g"}">${o.u}</i>` : ""}</span>` : ""}${o.ring ? `<canvas data-w="14" data-h="14" data-ring="${o.ring}"></canvas>` : ""}</div>`;
+const gauge = (id, size, o) => `<div style="position:relative;width:${size}px;height:${size}px"><canvas id="${id}" data-w="${size}" data-h="${size}"></canvas>
+  <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;line-height:1.15">
+  ${o.top ? `<div style="font-size:10px;font-weight:700;opacity:.6;letter-spacing:.8px">${o.top}</div>` : ""}
+  <div class="ms"><b style="font-size:${o.vs || 24}px"${o.vid ? ` id="${o.vid}"` : ""}>${o.v}</b><i style="font-size:11px" class="${["%", "°"].includes(o.u) ? "" : "g"}">${o.u || ""}</i></div>
+  ${o.label ? `<div style="font-size:10px;font-weight:700;opacity:.6;letter-spacing:1px">${o.label}</div>` : ""}
+  ${o.sub ? `<div style="font-size:10px;opacity:.55"${o.sid ? ` id="${o.sid}"` : ""}>${o.sub}</div>` : ""}</div></div>`;
+const procs = (rows, cols, capText) => card(`<div class="ph"><span class="st">PROCESSES</span><span class="sa">Show all</span>${cols ? `<div class="cols">${cols.map(c => `<span>${c}</span>`).join("")}</div>` : ""}</div>
+  ${capText ? `<div class="cap">${capText}</div>` : ""}
+  ${rows.map(([n, x, ...v]) => `<div class="pr"><span class="n">${n}</span>${x ? `<span class="x">×${x}</span>` : ""}<div class="cols">${v.map(c => `<span>${c}</span>`).join("")}</div></div>`).join("")}`);
+const mv = (v, u, id) => `<span class="ms nb" style="opacity:.9"><b${id ? ` id="${id}"` : ""}>${v}</b>${u ? `<i class="${["%", "°"].includes(u) ? "" : "g"}">${u}</i>` : ""}</span>`;
+
+const PAGES = {
+  cpu: () => [
+    card(`${ch("CPU", "5.12 GHz, 71°", "cpu-d")}<canvas id="g-cpu" data-w="470" data-h="64"></canvas>${lg([["var(--accent)", "User", M("43", "%", "cpu-u")], ["var(--s2)", "System", M("9", "%", "cpu-s")]])}`),
+    card(`<div style="display:flex;flex-wrap:wrap;gap:6px">${Array.from({ length: 16 }, (_, i) => `<canvas data-w="18" data-h="18" data-core="${i}"></canvas>`).join("")}</div>
+      ${lg([["var(--accent)", "Cores", M("8")], [alpha(THEMES.warm.fg, .25), "Threads", M("16")]])}<div class="cap" style="opacity:.45">AMD Ryzen 9 8945HS w/ Radeon 780M Graphics</div>`),
+    card(`<div style="display:flex;justify-content:space-between"><div>${st("LOAD AVERAGE")}<div style="font-weight:700;font-size:12px;margin-top:3px;white-space:pre">2.38  1.94  1.61</div></div>
+      <div style="text-align:right">${st("UPTIME")}<div style="font-weight:700;font-size:12px;margin-top:3px">3h 12m</div></div></div>`),
+    procs([["cargo", 0, mv("38", "%", "pc1")], ["rust-analyzer", 0, mv("12", "%")], ["chromium", 36, mv("6", "%")], ["quickshell", 2, mv("2", "%")], ["Hyprland", 0, mv("1", "%")], ["alacritty", 3, mv("1", "%")]]),
+  ],
+  gpu: () => [
+    card(`${ch("NVIDIA RTX 4070 Laptop GPU", "1980 MHz, 58°", "gpu-d")}<canvas id="g-gpu" data-w="470" data-h="64"></canvas>${sr({ dot: "var(--accent)", l: "Load", v: "38", u: "%", id: "gpu-l" })}
+      <canvas id="g-vram" data-w="470" data-h="64"></canvas>${sr({ dot: "var(--s2)", l: "VRAM", x: "41%", v: "3.3 / 8.0", u: "GB", id: "gpu-v" })}${sr({ l: "Power", v: "62", u: "W", dot: "transparent" })}${sr({ l: "Fan", v: "44", u: "%", dot: "transparent" })}`),
+    card(`${ch("AMD 780M", "800 MHz, 49°")}<canvas id="g-igpu" data-w="470" data-h="40"></canvas>${sr({ dot: "var(--accent)", l: "Load", v: "6", u: "%" })}${sr({ dot: "var(--s2)", l: "VRAM", x: "27%", v: "1.1 / 4.0", u: "GB" })}`),
+  ],
+  mem: () => [
+    card(`<div class="rings" style="gap:30px">${gauge("r-swap", 86, { v: "8", u: "%", label: "SWAP", sub: "1.2 GB" })}${gauge("r-mem", 86, { v: "41", u: "%", label: "MEMORY", vid: "mem-v" })}</div>`),
+    card(`<div style="display:flex;flex-direction:column;gap:2px">
+      ${sr({ dot: "var(--accent)", l: "Apps", v: "11.2", u: "GB" })}${sr({ dot: "var(--s2)", l: "Cached", v: "12.8", u: "GB" })}${sr({ dot: "var(--s3)", l: "Shared", v: "1.9", u: "GB" })}
+      ${sr({ dot: "var(--warn)", l: "Compressed", v: "812", u: "MB" })}${sr({ dot: alpha(THEMES.warm.fg, .16), l: "Free", v: "5.3", u: "GB" })}
+      ${sr({ dot: "var(--danger)", l: "Swap", x: "of 16.0 GB", v: "1.2", u: "GB" })}${sr({ dot: "transparent", l: "Total", lo: .55, v: "32.0", u: "GB", nb: true })}</div>`),
+    procs([["chromium", 37, mv("6.1", "GB")], ["rust-analyzer", 0, mv("2.4", "GB")], ["quickshell", 2, mv("936", "MB")], ["nvim", 16, mv("521", "MB")], ["alacritty", 3, mv("212", "MB")], ["Hyprland", 0, mv("184", "MB")]]),
+  ],
+  dsk: () => [
+    card(`<div style="display:flex;flex-direction:column;gap:4px">${[["Root", "612 GB available", "1.8", "TB", "btrfs · 41°", 66], ["Boot", "782 MB available", "1022", "MB", "vfat · 41°", 23], ["tank", "1.0 TB available", "3.6", "TB", "zfs · 38°", 71]].map(([n, a, s, u, f, p]) => `
+      <div class="vol"><div class="rg"><canvas data-w="24" data-h="24" data-vol="${p}"></canvas><span>${p}</span></div><div class="mid"><b>${n}</b><span>${a}</span></div>
+      <div class="rt">${mv(s, u)}<span class="f">${f}</span></div></div>`).join("")}</div>`),
+    card(`<div class="big"><div>${M("47.1", "MB/s", "dk-r")}<div class="c">Read</div></div><div>${M("3.2", "MB/s", "dk-w")}<div class="c">Write</div></div></div>
+      <canvas id="g-disk" data-w="470" data-h="72"></canvas>${lg([["var(--s2)", "Read peak", M("212", "MB/s")], ["var(--accent)", "Write peak", M("88.4", "MB/s")]])}`),
+    procs([["cargo", 0, mv("31.2", "MB/s", "dp1"), mv("4.1", "MB/s")], ["rsync", 0, mv("12.8", "MB/s"), "–"], ["chromium", 36, "–", mv("412", "KB/s")], ["btrfs-transaction", 0, "–", mv("96", "KB/s")]], ["Read", "Write"]),
+  ],
+  net: () => [
+    card(`<div class="big"><div>${M("238", "KB/s", "nt-u")}<div class="c">Upload</div></div><div>${M("12.2", "MB/s", "nt-d")}<div class="c">Download</div></div></div>
+      <canvas id="g-net" data-w="470" data-h="72"></canvas>${lg([["var(--s2)", "Peak ↑", M("1.5", "MB/s")], ["var(--accent)", "Peak ↓", M("19.4", "MB/s")]])}`),
+    card(`<div style="display:flex;flex-direction:column;gap:4px">
+      <div class="ifr"><span class="ic">󰤨</span><span class="nm" style="font-weight:700">Studio&nbsp;&nbsp;wlan0</span><span class="rt">Connected · -52 dBm</span></div>
+      <div class="ifr"><span class="ic">󰖂</span><span class="nm">tailscale0</span><span class="rt">Connected</span></div>
+      <div class="ifr" style="opacity:.5"><span class="ic">󰈀</span><span class="nm">enp5s0</span><span class="rt">Disconnected</span></div>
+      <div class="sep"></div>${sr({ l: "Received", x: "since boot", v: "128", u: "GB", nb: true })}${sr({ l: "Sent", x: "since boot", v: "9.4", u: "GB", nb: true })}</div>`),
+    card(`${st("PUBLIC IP ADDRESS")}<div style="font-size:12px;opacity:.92">203.0.113.42</div>`),
+    card(`${st("IP ADDRESSES · WLAN0")}<div style="font-size:12px;opacity:.92;line-height:20px">192.168.1.23<br>2001:db8::23</div>`),
+    procs([["curl", 0, mv("9.8", "MB/s", "np1"), "–"], ["chromium", 36, mv("412", "KB/s", "np2"), mv("24", "KB/s")], ["git", 0, mv("96", "KB/s"), "–"], ["spotify", 0, mv("41", "KB/s"), "–"], ["ssh", 0, "–", mv("3", "KB/s")], ["slack", 0, mv("2", "KB/s"), mv("1", "KB/s")]], ["Down", "Up"],
+      "TCP traffic per process from the kernel's socket counters. QUIC and other UDP traffic cannot be attributed without root."),
+  ],
+  sen: () => [
+    card(`<div class="rings" style="gap:18px">${gauge("r-ct", 84, { top: "CPU", v: "71", u: "°", vs: 16, sub: "5.12 GHz", vid: "sn-c" })}${gauge("r-gt", 84, { top: "GPU", v: "58", u: "°", vs: 16, sub: "1980 MHz", vid: "sn-g" })}${gauge("r-fan", 84, { top: "Fans", v: "2210", u: "rpm", vs: 16, sub: "2 of 2 on" })}</div>`),
+    card(`<div style="display:flex;flex-direction:column;gap:2px">${st("TEMPERATURE")}${[["CPU Tctl", 71], ["CPU Tccd1", 76], ["amdgpu edge", 49], ["NVMe Composite", 44], ["NVMe Sensor 1", 44], ["NVMe Sensor 2", 52], ["Memory 1", 46], ["Wi-Fi", 41], ["ACPI thermal zone", 55]]
+      .map(([n, v]) => sr({ l: n, v, u: "°", nb: true, ring: "t" + v })).join("")}</div>`),
+    card(`<div style="display:flex;flex-direction:column;gap:2px">${st("FANS")}${sr({ l: "CPU Fan", v: "2240", u: "rpm", nb: true, ring: "f2240" })}${sr({ l: "GPU Fan", v: "2180", u: "rpm", nb: true, ring: "f2180" })}</div>`),
+  ],
+  bat: () => [
+    card(`<div class="rings" style="gap:30px">${gauge("r-bat", 88, { v: "76", u: "%", sub: "1:24 to full" })}${gauge("r-hl", 88, { v: "92", u: "%", label: "HEALTH" })}</div>`),
+    card(`${ch("Charge", "Charging")}<canvas id="g-bat" data-w="470" data-h="56"></canvas>${lg([["var(--good)", "Charging"], ["var(--accent)", "On battery"]])}`),
+    card(`<div style="display:flex;flex-direction:column;gap:2px">${sr({ l: "Status", v: "Charging", nb: true })}${sr({ l: "Charging at", v: "38.2", u: "W", nb: true })}${sr({ l: "Capacity", x: "designed 76.0 Wh", v: "69.9", u: "Wh", nb: true })}
+      ${sr({ l: "Cycles", v: "143", nb: true })}${sr({ l: "Voltage", v: "16.84", u: "V", nb: true })}${sr({ l: "Power adapter", v: "Connected", nb: true })}${sr({ l: "Battery", v: "ASUS A32N2105", nb: true })}</div>`),
+    card(`<div style="display:flex;flex-direction:column;gap:2px">${st("DEVICES")}${sr({ l: "MX Master 3S", v: "80", u: "%", nb: true, ring: "b80" })}${sr({ l: "WH-1000XM5", x: "charging", v: "54", u: "%", nb: true, ring: "b54" })}${sr({ l: "Keychron Q1", v: "17", u: "%", nb: true, ring: "b17" })}</div>`),
+  ],
+  set: () => {
+    const sw = on => `<span class="sw${on ? "" : " off"}"></span>`;
+    const fr = (l, on, b, ind) => `<div class="fr${on ? "" : " off"}${b ? " b" : ""}${ind ? " ind" : ""}"><span class="l">${l}</span>${sw(on)}</div>`;
+    const mod = (n, on, look, extra = "") => `<div class="mod${on ? "" : " off"}">${sw(on)}<span class="nm">${n}</span>${on ? `<span class="arr"><span>󰁝</span><span>󰁅</span></span>` : ""}</div>
+      ${look ? `<div class="look"><div class="c">Look</div><div class="dd"><span>${look}</span><span class="chev">󰅀</span></div></div>` : ""}${extra}`;
+    return [
+      card(`${st("BAR")}<div class="cap" style="opacity:.55">Readouts shown in the bar, in this order. Each can show a mini graph, a figure, or both.</div>
+        ${mod("CPU", 1, "Graph and figure")}${mod("GPU", 1, "Graph and figure", fr("Show VRAM in bar", 1, 0, 1) + fr("NVIDIA RTX 4070 Laptop GPU", 1, 0, 1) + fr("AMD 780M", 0, 0, 1))}
+        ${mod("Memory", 1, "Graph and figure")}${mod("Disks", 1, "Graph or ring, and figure", fr("All disks", 1, 0, 1) + fr("nvme0n1 · WD_BLACK SN850X", 0, 0, 1))}
+        ${mod("Network", 1, "Graph and figure")}${mod("Sensors", 1, "", fr("CPU temperature", 1, 0, 1) + fr("RTX 4070 Laptop temperature", 1, 0, 1) + fr("NVMe Composite", 0, 0, 1) + fr("CPU Fan", 0, 0, 1))}
+        ${mod("Battery", 1, "Ring and figure")}`, `style="gap:6px"`),
+      card(`${st("PANEL")}<div class="cap" style="opacity:.55">Tabs shown in the panel and the sections on each page.</div>
+        ${fr("CPU", 1, 1)}${fr("Per-core rings", 1, 0, 1)}${fr("Load average and uptime", 1, 0, 1)}${fr("GPU", 1, 1)}${fr("Memory", 1, 1)}${fr("Breakdown", 1, 0, 1)}
+        ${fr("Disks", 1, 1)}${fr("Volumes", 1, 0, 1)}${fr("Read and write activity", 1, 0, 1)}${fr("Network", 1, 1)}${fr("Interfaces", 1, 0, 1)}${fr("Totals since boot", 1, 0, 1)}${fr("Public IP address", 1, 0, 1)}${fr("IP addresses", 1, 0, 1)}
+        ${fr("Sensors", 1, 1)}${fr("Temperatures", 1, 0, 1)}${fr("Fans", 1, 0, 1)}${fr("Battery", 1, 1)}${fr("Charge history", 1, 0, 1)}${fr("Details", 1, 0, 1)}${fr("Devices", 1, 0, 1)}
+        <div class="sep"></div>${fr("Top processes on every page", 1)}`, `style="gap:6px"`),
+      card(`${st("GENERAL")}
+        <div class="fr"><span class="l">Bar labels</span><span class="chips"><span class="on">Letters</span><span>Icons</span></span></div>
+        <div class="fr"><span class="l">Temperature</span><span class="chips"><span class="on">°C</span><span>°F</span></span></div>
+        ${fr("Utilization colors", 0)}
+        <div class="fr"><span class="l">Refresh every</span><span class="stp"><span class="bt">󰍴</span><span class="v">${M("0.5", "s")}</span><span class="bt">󰐕</span></span></div>
+        <div class="fr"><span class="l">History</span><span class="stp"><span class="bt">󰍴</span><span class="v">${M("240", "s")}</span><span class="bt">󰐕</span></span></div>
+        <div class="fr"><span class="l">Bar graph width</span><span class="stp"><span class="bt">󰍴</span><span class="v">${M("36", "px")}</span><span class="bt">󰐕</span></span></div>
+        <div class="btn">Reset to defaults</div>`, `style="gap:6px"`),
+    ];
+  },
+};
+const TABS = [["cpu", "CPU"], ["gpu", "GPU"], ["mem", "Memory"], ["dsk", "Disks"], ["net", "Network"], ["sen", "Sensors"], ["bat", "Battery"], ["set", "Settings"]];
+const CAPS = {
+  cpu: ["CPU", "History, per-core rings, load and the busiest processes."],
+  gpu: ["GPU", "Load and VRAM history for every card."],
+  mem: ["Memory", "Memory and swap rings, the full breakdown."],
+  dsk: ["Disks", "Every volume, ZFS too. Reads, writes, and who."],
+  net: ["Network", "Traffic per process, without root."],
+  sen: ["Sensors", "Every temperature. Every fan."],
+  bat: ["Battery", "Charge, health, cycles and your devices."],
+  set: ["Settings", "All of it, configurable in the panel."],
+};
+
+// ---------------------------------------------------------------- timings
+const T_ = {
+  hookPull: [2.1, 3.5], barTour: 4.6, barStep: 0.95, jitter: 12.2, deskOut: 13.8,
+  looks: [14.3, 14.95, 15.6, 16.25, 16.9, 17.5], iconsAt: 17.85,
+  vert: 18.4, deskIn: 21.1, click: 21.65, open: 21.7,
+  pages: [["cpu", 21.9], ["gpu", 24.3], ["mem", 26.7], ["dsk", 29.1], ["net", 31.5], ["sen", 33.9], ["bat", 36.3], ["set", 38.7]],
+  tourEnd: 42.0, themes: 42.9, outro: 45.4,
+};
+const HERO = ["cpu", "gpu", "vram", "mem", "dsk", "net", "sen", "bat"];
+const CALL = {
+  cpu: "CPU  <span>user and system load</span>", gpu: "GPU  <span>one readout per card</span>", vram: "VRAM  <span>new in 1.4</span>",
+  mem: "Memory  <span>in use, with history</span>", dsk: "Disks  <span>read and write</span>", net: "Network  <span>upload and download</span>",
+  sen: "Sensors  <span>any temperature or fan</span>", bat: "Battery  <span>charge, and when it's charging</span>",
+};
+const LOOKS = [["both", "Graph and figure"], ["graph", "Graph"], ["ring", "Ring"], ["ring-text", "Ring and figure"], ["text", "Figure"], ["both", "Graph and figure"]];
+
+// ---------------------------------------------------------------- build
+function build() {
+  const root = $("root"), world = $("world");
+  // bar readouts
+  const RO = {};
+  HERO.forEach(m => { const r = makeReadout(m, m === "bat" ? "ring-text" : "both", "text", 10); RO[m] = r; $("readouts").appendChild(r.el); });
+  // looks chip: every variant, one shown at a time
+  const chips = LOOKS.map(([look]) => makeReadout("cpu", look, "text", 12)).concat([makeReadout("cpu", "both", "icon", 12)]);
+  chips.forEach(c => { c.el.style.display = "none"; $("chipbar").appendChild(c.el); });
+  $("lookfield").innerHTML = `<div style="transform:scale(3);transform-origin:50% 0;width:220px"><div style="font-size:10px;font-weight:700;opacity:.5;margin-bottom:3px">Look</div><div class="dd" style="background:var(--panel)"><span id="lookname">Graph and figure</span><span class="chev">󰅀</span></div></div>`;
+  // vertical bar
+  const VR = ["cpu", "gpu", "vram", "mem", "net", "sen", "bat"].map(m => makeVertical(m));
+  const ws = document.createElement("div"); ws.style.cssText = "position:absolute;top:8px;font-size:10px;font-weight:700;display:flex;flex-direction:column;gap:4px;align-items:center"; ws.innerHTML = "<span>1</span><span style='opacity:.45'>2</span><span style='opacity:.45'>3</span>";
+  $("vbar").appendChild(ws); VR.forEach(v => $("vbar").appendChild(v.el));
+  // panel
+  $("tabs").innerHTML = TABS.map(([id, l]) => `<div data-t="${id}">${l}</div>`).join("");
+  $("viewport").innerHTML = TABS.map(([id]) => `<div class="page" id="p-${id}">${PAGES[id]().join("")}</div>`).join("");
+  $("pcaps").innerHTML = TABS.map(([id]) => `<div class="pcap" id="c-${id}"><div class="head">${CAPS[id][0]}</div><div class="sub">${CAPS[id][1]}</div></div>`).join("");
+  registerCanvases(document);
+
+  // layout measurements at 1x
+  const rect = el => { const r = el.getBoundingClientRect(); return { x: r.left, y: r.top, w: r.width, h: r.height, cx: r.left + r.width / 2, cy: r.top + r.height / 2 }; };
+  const group = rect($("readouts")), cpuR = rect(RO.cpu.el), cpuG = rect(RO.cpu.el.querySelector("canvas"));
+  const pageH = {}; TABS.forEach(([id]) => pageH[id] = $("p-" + id).offsetHeight);
+  const panelW = 524, panelX = clamp(cpuR.cx - panelW / 2, 8, 1920 - 8 - panelW);
+  $("panel").style.left = panelX + "px";
+  const chrome = 2 + 14 + 28 + 10 + 14 + 2;
+  const setMax = 1040 - chrome;                       // the panel caps at the screen and scrolls
+  const vpH = id => Math.min(pageH[id], id === "set" ? setMax : 1e9);
+  const RX = {}; HERO.forEach(m => RX[m] = rect(RO[m].el).cx);
+
+  // camera keys [t, cx, cy, s]
+  const heroS = Math.min(2.4, 1800 / group.w), heroCy = 13 + (540 - 420) / heroS;
+  const tourS = 1.4, tourCx = panelX + panelW - (1860 - 960) / tourS, tourCy = 378;
+  const visBottom = cy => cy + (1050 - 540) / tourS;
+  const CAM = [[0, cpuG.cx, 13 + (540 - 360) / 9, 9.6], [T_.hookPull[0], cpuG.cx, 13 + (540 - 360) / 8.4, 8.4], [T_.hookPull[1], group.cx, heroCy, heroS],
+    [T_.barTour - 0.25, group.cx, heroCy, heroS]];
+  const zS = 4.2, zCy = 13 + (540 - 420) / zS;
+  HERO.forEach((m, i) => { const at = T_.barTour + i * T_.barStep; CAM.push([at + (i ? 0 : -0.25) + 0.001, i ? RX[HERO[i - 1]] : group.cx, i ? zCy : heroCy, i ? zS : heroS], [at + 0.4, RX[m], zCy, zS]); });
+  CAM.push([T_.jitter, RX.bat, zCy, zS], [T_.jitter + 0.7, group.cx, heroCy, heroS],
+    [T_.deskOut, group.cx, heroCy, heroS], [T_.deskOut + 0.01, tourCx, tourCy, tourS], [T_.pages[0][1], tourCx, tourCy, tourS]);
+  T_.pages.forEach(([id, at], i) => {
+    const bottom = 32 + chrome + vpH(id), need = Math.max(tourCy, bottom - (1050 - 540) / tourS);
+    const next = i + 1 < T_.pages.length ? T_.pages[i + 1][1] : T_.tourEnd;
+    if (need > tourCy + 1) {
+      CAM.push([at + 0.9, tourCx, tourCy, tourS], [at + 1.8, tourCx, need, tourS]);
+      if (next < T_.tourEnd) CAM.push([next - 0.15, tourCx, need, tourS], [next + 0.45, tourCx, tourCy, tourS]);
+      else CAM.push([T_.tourEnd, tourCx, need, tourS]);
+    } else if (next >= T_.tourEnd) CAM.push([T_.tourEnd, tourCx, tourCy, tourS]);
+  });
+  CAM.push([T_.tourEnd + 0.9, 960, 540, 1], [60, 960, 540, 1]);
+  CAM.sort((a, b) => a[0] - b[0]);
+  function camAt(t) {
+    let i = 0; while (i < CAM.length - 1 && CAM[i + 1][0] <= t) i++;
+    const a = CAM[i], b = CAM[Math.min(i + 1, CAM.length - 1)]; if (b === a || t <= a[0]) return a.slice(1);
+    const p = ease(clamp((t - a[0]) / (b[0] - a[0]), 0, 1));
+    const s = Math.exp(Math.log(a[3]) + (Math.log(b[3]) - Math.log(a[3])) * p);
+    return [a[1] + (b[1] - a[1]) * p, a[2] + (b[2] - a[2]) * p, s];
+  }
+  const toScreen = (x, y, cam) => [(x - cam[0]) * cam[2] + 960, (y - cam[1]) * cam[2] + 540];
+
+  // ---------------------------------------------------------- render(t)
+  const tabEls = [...$("tabs").children];
+  const CMD = "omarchy plugin add https://github.com/crmne/omastats.git --enable";
+  const ringColorFor = v => v >= 0.92 * 95 ? "danger" : v >= 0.78 * 95 ? "warn" : "accent";
+  function render(t) {
+    const T = themeAt(t), k = Math.floor(t * RATE) + 600;
+    for (const key in T) root.style.setProperty("--" + key, T[key]);
+    const cam = camAt(t);
+    world.style.transform = `translate(${960 - cam[0] * cam[2]}px, ${540 - cam[1] * cam[2]}px) scale(${cam[2]})`;
+
+    HERO.forEach(m => RO[m].draw(T, k));
+    // looks chip
+    let li = 0; T_.looks.forEach((at, i) => { if (t >= at) li = i; });
+    const iconMode = t >= T_.iconsAt;
+    chips.forEach((c, i) => { const on = iconMode ? i === chips.length - 1 : i === li; c.el.style.display = on ? "flex" : "none"; if (on && t >= 13.9 && t < 18.6) c.draw(T, k); });
+    $("lookname").textContent = LOOKS[li][1];
+    $("lk1").style.opacity = iconMode ? .45 : 1; $("lk2").style.opacity = iconMode ? 1 : .45;
+    if (t >= 18.2 && t < 21.5) VR.forEach(v => v.draw(T, k));
+
+    // callout follows the highlighted readout
+    const hi = clamp(Math.floor((t - T_.barTour) / T_.barStep), 0, HERO.length - 1);
+    $("callout").style.left = "960px";
+    $("calltxt").innerHTML = CALL[HERO[hi]];
+    $("calltxt").style.opacity = clamp((t - T_.barTour - hi * T_.barStep - 0.2) / 0.2, 0, 1);
+
+    // tabs
+    let cur = "cpu"; T_.pages.forEach(([id, at]) => { if (t >= at) cur = id; }); if (t >= T_.tourEnd) cur = "net";
+    tabEls.forEach(d => d.className = d.dataset.t === cur ? "on" : "");
+
+    // panel graphs and live figures
+    if (t >= 21 && t < 46) {
+      const N = 157;
+      drawHistory($("g-cpu"), [hist(D.cpuUser, k, N), hist(D.cpuSys, k, N)], [T.accent, T.s2], { bw: 2, gap: 1, baseline: alpha(T.fg, .14) });
+      $("cpu-u").textContent = Math.round(D.cpuUser(k)); $("cpu-s").textContent = Math.round(D.cpuSys(k));
+      $("cpu-d").textContent = (4.7 + noise(k * .2, 40) * 0.5).toFixed(2) + " GHz, " + Math.round(D.ctemp(k)) + "°";
+      document.querySelectorAll("canvas[data-core]").forEach(c => drawRing(c, [[D.core(k, +c.dataset.core) / 100, +c.dataset.core < 8 ? T.accent : T.accent]], 2.6, alpha(T.fg, .12)));
+      $("pc1").textContent = Math.round(30 + noise(k * .3, 41) * 16);
+      drawHistory($("g-gpu"), [hist(D.gpu, k, N)], [T.accent], { bw: 2, gap: 1, baseline: alpha(T.fg, .14) });
+      drawHistory($("g-vram"), [hist(D.vram, k, N)], [T.s2], { bw: 2, gap: 1, baseline: alpha(T.fg, .14) });
+      drawHistory($("g-igpu"), [hist(k2 => 4 + 6 * noise(k2 * .2, 42), k, N)], [T.accent], { bw: 2, gap: 1, baseline: alpha(T.fg, .14) });
+      $("gpu-l").textContent = Math.round(D.gpu(k)); $("gpu-v").textContent = (D.vram(k) / 100 * 8).toFixed(1) + " / 8.0";
+      $("gpu-d").textContent = Math.round(1700 + D.gpu(k) * 4) + " MHz, " + Math.round(D.gtemp(k)) + "°";
+      drawRing($("r-swap"), [[0.08, T.accent]], 5, alpha(T.fg, .10));
+      drawRing($("r-mem"), [[0.35, T.accent], [0.06, T.s3], [0.4, T.s2]], 5, alpha(T.fg, .10));
+      document.querySelectorAll("canvas[data-vol]").forEach(c => { const p = +c.dataset.vol / 100; drawRing(c, [[p, p >= .92 ? T.danger : p >= .8 ? T.warn : T.accent]], 3, alpha(T.fg, .12)); });
+      drawMirror($("g-disk"), hist(D.rd, k, N), hist(D.wr, k, N), T.s2, T.accent, { bw: 2, gap: 1, floor: 262144, midline: alpha(T.fg, .18) });
+      const rp = rateParts(D.rd(k)), wp = rateParts(D.wr(k));
+      $("dk-r").textContent = rp.value; $("dk-r").nextSibling.textContent = rp.unit; $("dk-w").textContent = wp.value; $("dk-w").nextSibling.textContent = wp.unit;
+      drawMirror($("g-net"), hist(D.tx, k, N), hist(D.rx, k, N), T.s2, T.accent, { bw: 2, gap: 1, floor: 10240, midline: alpha(T.fg, .18) });
+      const up = rateParts(D.tx(k)), dn = rateParts(D.rx(k));
+      $("nt-u").textContent = up.value; $("nt-u").nextSibling.textContent = up.unit; $("nt-d").textContent = dn.value; $("nt-d").nextSibling.textContent = dn.unit;
+      const c1 = rateParts(D.rx(k) * 0.8); $("np1").textContent = c1.value; $("np1").nextSibling.textContent = c1.unit;
+      $("np2").textContent = Math.round(200 + noise(k * .4, 43) * 400);
+      const ct = D.ctemp(k), gt = D.gtemp(k);
+      drawRing($("r-ct"), [[ct / 100, T[ringColorFor(ct)]]], 5, alpha(T.fg, .10)); $("sn-c").textContent = Math.round(ct);
+      drawRing($("r-gt"), [[gt / 100, T[gt >= 0.78 * 90 ? "warn" : "accent"]]], 5, alpha(T.fg, .10)); $("sn-g").textContent = Math.round(gt);
+      drawRing($("r-fan"), [[2210 / 2400, T.s2]], 5, alpha(T.fg, .10));
+      document.querySelectorAll("canvas[data-ring]").forEach(c => { const r = c.dataset.ring, v = +r.slice(1);
+        if (r[0] === "t") drawRing(c, [[v / 100, T[ringColorFor(v)]]], 2.2, alpha(T.fg, .12));
+        else if (r[0] === "f") drawRing(c, [[v / 2400, T.s2]], 2.2, alpha(T.fg, .12));
+        else drawRing(c, [[v / 100, v <= 20 ? T.warn : T.accent]], 2.2, alpha(T.fg, .12)); });
+      drawRing($("r-bat"), [[0.76, T.good]], 5, alpha(T.fg, .10)); drawRing($("r-hl"), [[0.92, T.s2]], 5, alpha(T.fg, .10));
+      drawHistory($("g-bat"), [hist(k2 => 20 + ((k2 * 0.23) % 60), k, N)], [T.accent], { bw: 2, gap: 1, baseline: alpha(T.fg, .14),
+        sampleColor: idx => Math.floor(((k - N + 1 + idx) * 0.23) / 60) % 2 === 0 && ((k - N + 1 + idx) * 0.23) % 60 > 20 ? T.good : T.accent });
+    }
+    // outro
+    const L = CV.get($("logo")); L.ctx.clearRect(0, 0, 150, 150);
+    drawRing($("logo"), [[0.58, T.accent], [0.24, T.s2]], 14, alpha(T.fg, .12));
+    for (let i = 0; i < 7; i++) { const v = D.cpuUser(k - 6 + i) / 100; L.ctx.fillStyle = T.fg; L.ctx.fillRect(44 + i * 9.5, 102 - v * 55, 6, v * 55); }
+    const p = clamp((t - 46.6) / 1.1, 0, 1);
+    $("cmdtext").textContent = CMD.slice(0, Math.round(p * CMD.length));
+    $("caret").style.opacity = p < 1 ? 1 : (Math.floor((t - 47.7) * 2.2) % 2 ? 0.15 : 1);
+  }
+
+  // ---------------------------------------------------------- timeline
+  const tl = gsap.timeline({ paused: true });
+  const clock = { t: 0 };
+  tl.to(clock, { t: 51, duration: 51, ease: "none", onUpdate: () => render(clock.t) }, 0);
+
+  // 1. hook: the bar at macro scale, then pull back
+  tl.fromTo("#bar", { opacity: 0 }, { opacity: 1, duration: 0.5 }, 0);
+  tl.fromTo("#hook1", { opacity: 0, y: 40 }, { opacity: 1, y: 0, duration: 0.7, ease: "power3.out" }, 0.35);
+  tl.to("#hook1", { opacity: 0, y: 30, duration: 0.35, ease: "power2.in" }, 2.05);
+  tl.fromTo("#hook2", { opacity: 0, y: -30 }, { opacity: 1, y: 0, duration: 0.6, ease: "power3.out" }, 3.0);
+  tl.set("#panel", { opacity: 0 }, 0);
+
+  // 2. readout by readout
+  const others = m => HERO.filter(x => x !== m).map(x => RO[x].el);
+  tl.fromTo("#callout", { opacity: 0 }, { opacity: 1, duration: 0.3 }, T_.barTour - 0.1);
+  HERO.forEach((m, i) => {
+    const at = T_.barTour + i * T_.barStep;
+    tl.to(others(m), { opacity: 0.25, duration: 0.25 }, at);
+    tl.to(RO[m].el, { opacity: 1, duration: 0.25 }, at);
+  });
+  tl.to("#callout", { opacity: 0, duration: 0.25 }, T_.jitter - 0.1);
+  tl.to(HERO.map(m => RO[m].el), { opacity: 1, duration: 0.3 }, T_.jitter);
+  tl.fromTo(".rsv", { opacity: 0 }, { opacity: 0.9, duration: 0.3 }, T_.jitter + 0.2);
+  tl.fromTo("#jit", { opacity: 0, y: 20 }, { opacity: 1, y: 0, duration: 0.5, ease: "power3.out" }, T_.jitter + 0.1);
+  tl.to(["#jit", "#barhead"], { opacity: 0, duration: 0.3 }, T_.deskOut - 0.3);
+  tl.to(".rsv", { opacity: 0, duration: 0.2 }, T_.deskOut - 0.2);
+  tl.to("#world", { opacity: 0, duration: 0.3 }, T_.deskOut - 0.1);
+
+  // 3. looks
+  tl.fromTo("#lookhead", { opacity: 0, y: 30 }, { opacity: 1, y: 0, duration: 0.5, ease: "power3.out" }, 14.05);
+  tl.fromTo("#lookfield", { opacity: 0 }, { opacity: 1, duration: 0.4 }, 14.15);
+  tl.fromTo("#chipbar", { opacity: 0, scale: 5 }, { opacity: 1, scale: 6, duration: 0.5, ease: "power3.out" }, 14.15);
+  T_.looks.slice(1).concat([T_.iconsAt]).forEach(at => { tl.to("#chipbar", { scale: 5.7, duration: 0.06 }, at - 0.03); tl.to("#chipbar", { scale: 6, duration: 0.3, ease: "back.out(3)" }, at + 0.03); });
+  tl.fromTo("#labchips", { opacity: 0, y: 16 }, { opacity: 1, y: 0, duration: 0.35 }, 17.45);
+  tl.to(["#lookhead", "#lookfield", "#chipbar", "#labchips"], { opacity: 0, duration: 0.3 }, 18.2);
+
+  // 4. vertical bars
+  tl.fromTo("#vwrap", { x: -90 }, { x: 0, duration: 0.6, ease: "power3.out" }, 18.45);
+  tl.fromTo("#vcopy .eyebrow", { opacity: 0, x: -20 }, { opacity: 1, x: 0, duration: 0.4 }, 18.6);
+  tl.fromTo("#vcopy .line", { opacity: 0, y: 40 }, { opacity: 1, y: 0, duration: 0.6, ease: "power3.out", stagger: 0.12 }, 18.65);
+  tl.to(["#vcopy", "#vwrap"], { opacity: 0, duration: 0.3 }, 20.9);
+
+  // 5. panel tour
+  tl.to("#world", { opacity: 1, duration: 0.4 }, T_.deskIn);
+  const cursorAt = toScreen(cpuR.cx, 13, [tourCx, tourCy, tourS]);
+  tl.fromTo("#cursor", { opacity: 0, x: cursorAt[0] - 220, y: cursorAt[1] + 320 }, { opacity: 1, x: cursorAt[0] - 150, y: cursorAt[1] + 220, duration: 0.2 }, T_.deskIn + 0.1);
+  tl.to("#cursor", { x: cursorAt[0], y: cursorAt[1], duration: 0.3, ease: "power2.inOut" }, T_.deskIn + 0.3);
+  tl.to("#cursor", { scale: 0.8, duration: 0.06, yoyo: true, repeat: 1, transformOrigin: "0 0" }, T_.click);
+  tl.to("#cursor", { opacity: 0, x: cursorAt[0] + 60, y: cursorAt[1] + 80, duration: 0.35 }, T_.click + 0.3);
+  tl.set("#viewport", { height: vpH("cpu") }, 0);
+  tl.fromTo("#panel", { opacity: 0, y: -16, scaleY: 0.94 }, { opacity: 1, y: 0, scaleY: 1, duration: 0.4, ease: "power3.out" }, T_.open);
+  tl.set("#p-cpu", { opacity: 1 }, T_.open);
+  tl.fromTo("#p-cpu .card", { opacity: 0, y: 10 }, { opacity: 1, y: 0, duration: 0.35, ease: "power2.out", stagger: 0.05 }, T_.open + 0.08);
+  tl.fromTo("#keys", { opacity: 0 }, { opacity: 1, duration: 0.4 }, 23.9);
+  T_.pages.forEach(([id, at], i) => {
+    const next = i + 1 < T_.pages.length ? T_.pages[i + 1][1] : T_.tourEnd;
+    tl.fromTo("#c-" + id, { opacity: 0, y: 26 }, { opacity: 1, y: 0, duration: 0.45, ease: "power3.out" }, at + 0.05);
+    tl.to("#c-" + id, { opacity: 0, y: -20, duration: 0.2, ease: "power2.in" }, next - 0.2);
+    if (i === 0) return;
+    const prev = T_.pages[i - 1][0];
+    const key = id === "set" ? "#k-s" : "#k-l";
+    tl.to(key, { y: 4, duration: 0.07, yoyo: true, repeat: 1 }, at - 0.1);
+    tl.to("#p-" + prev, { opacity: 0, x: -14, duration: 0.12, ease: "power2.in" }, at);
+    tl.to("#viewport", { height: vpH(id), duration: 0.32, ease: "power3.inOut" }, at + 0.02);
+    tl.fromTo("#p-" + id, { opacity: 0, x: 14 }, { opacity: 1, x: 0, duration: 0.28, ease: "power3.out" }, at + 0.1);
+    tl.fromTo("#p-" + id + " > .card", { y: 8 }, { y: 0, duration: 0.3, ease: "power2.out", stagger: 0.035 }, at + 0.1);
+  });
+  // Settings is taller than the screen: the panel caps and scrolls
+  tl.fromTo("#p-set", { y: 0 }, { y: -(pageH.set - setMax), duration: 1.9, ease: "power2.inOut" }, T_.pages[7][1] + 1.2);
+  tl.to("#keys", { opacity: 0, duration: 0.3 }, T_.tourEnd - 0.3);
+  // back to Network for the theme pass
+  tl.to("#p-set", { opacity: 0, duration: 0.12 }, T_.tourEnd);
+  tl.to("#viewport", { height: vpH("net"), duration: 0.35, ease: "power3.inOut" }, T_.tourEnd + 0.02);
+  tl.fromTo("#p-net", { opacity: 0 }, { opacity: 1, duration: 0.25 }, T_.tourEnd + 0.1);
+
+  // 6. themes
+  tl.fromTo("#thcopy .line", { opacity: 0, y: 40 }, { opacity: 1, y: 0, duration: 0.6, ease: "power3.out", stagger: 0.12 }, 42.35);
+  [["#tn1", 42.9], ["#tn2", 43.6], ["#tn3", 44.3]].forEach(([s, at], i, a) => {
+    tl.fromTo(s, { opacity: 0, y: 14 }, { opacity: 1, y: 0, duration: 0.25 }, at);
+    tl.to(s, { opacity: 0, y: -14, duration: 0.18 }, i < 2 ? a[i + 1][1] - 0.18 : 44.95);
+  });
+  tl.to("#thcopy", { opacity: 0, duration: 0.3 }, 45.1);
+
+  // 7. outro
+  tl.to("#world", { opacity: 0.14, filter: "blur(10px)", duration: 0.7, ease: "power2.inOut" }, 45.3);
+  tl.fromTo("#mark", { opacity: 0, y: 40, scale: 0.96 }, { opacity: 1, y: 0, scale: 1, duration: 0.7, ease: "power3.out" }, 45.7);
+  tl.fromTo("#tag", { opacity: 0, y: 20 }, { opacity: 1, y: 0, duration: 0.5, ease: "power3.out" }, 46.05);
+  tl.fromTo("#cmd", { opacity: 0, y: 20 }, { opacity: 1, y: 0, duration: 0.45, ease: "power3.out" }, 46.3);
+  tl.fromTo("#url", { opacity: 0, y: 14 }, { opacity: 1, y: 0, duration: 0.45, ease: "power3.out" }, 47.6);
+
+  render(0);
+  window.__timelines["main"] = tl;
+}
+document.fonts.ready.then(() => Promise.all([...document.fonts].map(f => f.load()))).then(build);
+
+    </script>
+  </body>
+</html>
