@@ -52,7 +52,7 @@ verify-arm64:
 # Copy the plugin into the Omarchy plugin directory and reload the shell.
 install:
 	mkdir -p "$(PLUGIN_DIR)"
-	rsync -a --delete --exclude .git --exclude .cache --exclude sampler/target --exclude /video "$(CURDIR)/" "$(PLUGIN_DIR)/"
+	rsync -a --delete --exclude .git --exclude .cache --exclude sampler/target "$(CURDIR)/" "$(PLUGIN_DIR)/"
 	omarchy-shell shell rescanPlugins || true
 
 clean:
