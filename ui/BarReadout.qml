@@ -258,7 +258,7 @@ WidgetButton {
 
     // Every module but sensors: one label, then graph and/or figure.
     Text {
-      visible: root.module !== "sensors" && root.labelMode !== "text"
+      visible: root.module !== "sensors" && root.labelMode === "icon"
       textFormat: Text.PlainText
       text: root.glyph
       color: root.foreground
@@ -275,6 +275,18 @@ WidgetButton {
       fontFamily: root.fontFamily
       letterSize: Style.spaceReal(10)
       maxHeight: root.barSize - Style.space(3)
+      anchors.verticalCenter: parent.verticalCenter
+    }
+
+    Text {
+      visible: root.module !== "sensors" && root.labelMode === "inline"
+      textFormat: Text.PlainText
+      text: root.shortLabel || root.def.short || root.def.label
+      color: root.foreground
+      font.family: root.fontFamily
+      font.pixelSize: Style.font.body
+      font.bold: true
+      renderType: Text.NativeRendering
       anchors.verticalCenter: parent.verticalCenter
     }
 
@@ -318,7 +330,7 @@ WidgetButton {
         anchors.verticalCenter: parent.verticalCenter
 
         Text {
-          visible: root.labelMode !== "text"
+          visible: root.labelMode === "icon"
           textFormat: Text.PlainText
           text: sensorPair.reading.icon || "󰔏"
           color: root.foreground
@@ -335,6 +347,18 @@ WidgetButton {
           fontFamily: root.fontFamily
           letterSize: Style.spaceReal(10)
           maxHeight: root.barSize - Style.space(3)
+          anchors.verticalCenter: parent.verticalCenter
+        }
+
+        Text {
+          visible: root.labelMode === "inline"
+          textFormat: Text.PlainText
+          text: sensorPair.reading.short || "TMP"
+          color: root.foreground
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.body
+          font.bold: true
+          renderType: Text.NativeRendering
           anchors.verticalCenter: parent.verticalCenter
         }
 
@@ -373,7 +397,7 @@ WidgetButton {
       active: root.vertical && root.module !== "sensors"
       visible: active
       width: parent.width
-      sourceComponent: root.labelMode === "text" ? acrossLabel : glyphLabel
+      sourceComponent: root.labelMode === "icon" ? glyphLabel : acrossLabel
     }
 
     Loader {
@@ -437,7 +461,7 @@ WidgetButton {
         spacing: Style.space(1)
 
         FitText {
-          visible: root.labelMode === "text"
+          visible: root.labelMode !== "icon"
           text: sensorStack.reading.short || "TMP"
           color: root.foreground
           font.family: root.fontFamily
@@ -445,7 +469,7 @@ WidgetButton {
         }
 
         Text {
-          visible: root.labelMode !== "text"
+          visible: root.labelMode === "icon"
           width: parent.width
           horizontalAlignment: Text.AlignHCenter
           textFormat: Text.PlainText

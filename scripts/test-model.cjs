@@ -149,3 +149,15 @@ test("a ZFS pool counts towards all disks even when its drive is unknown", () =>
   ] } };
   assert.deepEqual(plain(model.diskUsage(snapshot, "all")), { used: 80, size: 200, fraction: 0.4 });
 });
+
+test("bar label mode keeps inline and falls back to stacked letters", () => {
+  assert.equal(model.barLabelMode("text"), "text");
+  assert.equal(model.barLabelMode("inline"), "inline");
+  assert.equal(model.barLabelMode("INLINE"), "inline");
+  assert.equal(model.barLabelMode("icon"), "icon");
+  assert.equal(model.barLabelMode("Icons"), "text");
+  assert.equal(model.barLabelMode("nonsense"), "text");
+  assert.equal(model.barLabelMode(""), "text");
+  assert.equal(model.barLabelMode(undefined), "text");
+  assert.equal(model.barLabelMode(null), "text");
+});

@@ -146,7 +146,7 @@ edited there by hand or through Setup → Plugins:
 | `cpuStyle` … `batteryStyle` | *(inherit)*                             | Per-module override of `style`                            |
 | `tabs`                    | `cpu,gpu,memory,disks,network,sensors,battery` | Tabs shown in the panel                              |
 | `graphWidth`              | `36`                                      | Width of each mini graph in the bar                       |
-| `barLabels`               | `text`                                    | `text` stacks the module's letters vertically (across a vertical bar), `icon` uses glyphs |
+| `barLabels`               | `text`                                    | `text` stacks the module's letters vertically (across a vertical bar), `inline` writes the short name horizontally on one line, `icon` uses glyphs |
 | `barDisks`                | *(follows `disksSource`)*                 | Disk readouts as `disk:show`, e.g. `all:speed,nvme0n1:both`; `show` is `speed`, `used` or `both`, `none` hides them |
 | `disksSource`             | `all`                                     | Disks page activity: `all` or a device like `nvme0n1`     |
 | `barSensors`              | `cpu`                                     | Sensor readouts: `cpu`, `gpu`, or hwmon ids like `nct6687/fan1` |

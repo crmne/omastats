@@ -94,9 +94,10 @@
         "key": "barLabels",
         "type": "enum",
         "label": "Bar labels",
-        "description": "Stacked letters (CPU, MEM, NET) like iStat Menus, or glyphs.",
+        "description": "How each readout is labelled: stacked letters (CPU, MEM, NET) like iStat Menus, the short name written horizontally on one line, or a glyph.",
         "options": [
           "text",
+          "inline",
           "icon"
         ],
         "defaultValue": "text"

@@ -412,6 +412,15 @@ function flag(settings, key) {
   return truthy(settingValue(settings, key), SETTINGS[key] === true)
 }
 
+var BAR_LABEL_MODES = ["text", "inline", "icon"]
+
+// Bar label look: stacked letters (text), a horizontal short name (inline), or
+// a glyph (icon). An unknown or missing value falls back to stacked letters.
+function barLabelMode(value) {
+  var mode = String(value === undefined || value === null ? "" : value).toLowerCase()
+  return BAR_LABEL_MODES.indexOf(mode) !== -1 ? mode : "text"
+}
+
 function utilizationGrade(value) {
   if (value === null || value === undefined || value === "") return -1
   var n = Number(value)
