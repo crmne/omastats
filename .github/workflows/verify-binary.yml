@@ -30,14 +30,6 @@ jobs:
       image: archlinux@sha256:84cd9ef000b3cff245ec028e87965b84724f4bf1cc63fc2741ba927b88515ed6
 
     steps:
-      - name: Check out the exact source commit
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
-        with:
-          ref: ${{ inputs.ref || github.sha }}
-
-      - id: source
-        run: echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-
       - name: Install the dated, signed Arch build environment
         shell: bash
         run: |
@@ -54,6 +46,20 @@ jobs:
           test "$(pacman -Q git)" = 'git 2.55.0-1'
           test "$(pacman -Q python)" = 'python 3.14.7-1'
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Check out the exact source commit
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+
+      - name: Record the checked-out source commit
+        id: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          commit=$(git rev-parse HEAD)
+          [[ "$commit" =~ ^[0-9a-f]{40}$ ]]
+          echo "commit=$commit" >> "$GITHUB_OUTPUT"
 
       - name: Test and lint the retained source
         shell: bash
@@ -124,11 +130,13 @@ jobs:
         shell: bash
         env:
           BUILDER_IMAGE: archlinux@sha256:84cd9ef000b3cff245ec028e87965b84724f4bf1cc63fc2741ba927b88515ed6
+          SOURCE_COMMIT: ${{ steps.source.outputs.commit }}
         run: |
           set -euo pipefail
+          [[ "$SOURCE_COMMIT" =~ ^[0-9a-f]{40}$ ]]
           {
             echo 'format=omastats-binary-provenance-v1'
-            echo "source_commit=$(git rev-parse HEAD)"
+            echo "source_commit=$SOURCE_COMMIT"
             echo "source_date_epoch=$SOURCE_DATE_EPOCH"
             echo "builder_image=$BUILDER_IMAGE"
             echo "rustflags=$RUSTFLAGS"
