@@ -381,6 +381,34 @@ function filterProcesses(list, query, key) {
   return items
 }
 
+// Read the authoritative inline settings rather than a bar slot's cached
+// copy. Without a location, only a unique entry is safe to identify.
+function savedBarSettings(barConfig, id, location) {
+  var layout = barConfig && barConfig.layout
+  if (!layout) return null
+  var entry = null
+  if (location) {
+    var entries = layout[location.section]
+    entry = Array.isArray(entries) ? entries[location.index] : null
+    if (!entry || entry.id !== id) return null
+  } else {
+    var sections = ["left", "center", "right"]
+    for (var s = 0; s < sections.length; s++) {
+      var list = layout[sections[s]]
+      if (!Array.isArray(list)) continue
+      for (var i = 0; i < list.length; i++) {
+        if (!list[i] || list[i].id !== id) continue
+        if (entry) return null
+        entry = list[i]
+      }
+    }
+  }
+  if (!entry) return null
+  var out = {}
+  for (var key in entry) if (key !== "id") out[key] = entry[key]
+  return out
+}
+
 function settingValue(settings, key) {
   var value = settings ? settings[key] : undefined
   if (key === "tabs" && value !== undefined && value !== null

@@ -169,6 +169,16 @@ Panel {
 
   // ---------------------------------------------------------- persistence
 
+  // Some shell versions re-inject a slot's original settings after an inline
+  // edit. Keep the widget on the saved entry and use it for subsequent writes.
+  readonly property var savedSettings: Model.savedBarSettings(
+    bar && bar.shell ? bar.shell.barConfig : null, moduleName, locateSelf())
+  onSavedSettingsChanged: Qt.callLater(restoreSavedSettings)
+
+  function restoreSavedSettings() {
+    if (savedSettings && JSON.stringify(settings) !== JSON.stringify(savedSettings)) settings = savedSettings
+  }
+
   // Where this instance lives in shell.json, so a change touches only this
   // copy even when the widget appears several times in the bar.
   function locateSelf() {
@@ -205,8 +215,9 @@ Panel {
   }
 
   function persist(key, value) {
+    var current = savedSettings || settings
     var next = {}
-    for (var k in settings) next[k] = settings[k]
+    for (var k in current) next[k] = current[k]
     next[key] = value
     settings = next
     if (!bar || !bar.shell) return
@@ -250,7 +261,10 @@ Panel {
   onCurrentTabChanged: if (opened && service) service.setFocus(currentTab)
 
   onPanelTabsChanged: if (panelTabs.indexOf(currentTab) === -1) currentTab = panelTabs[0]
-  onSettingsChanged: pushSettings()
+  onSettingsChanged: {
+    pushSettings()
+    Qt.callLater(restoreSavedSettings)
+  }
   onServiceChanged: {
     pushSettings()
     if (service) service.registerInstance(root)

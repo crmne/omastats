@@ -136,8 +136,10 @@ Every process list has an **All** toggle that unfolds into every process with a
 search field (`/` from anywhere in the panel), sorted by that page's column.
 
 Changes are written to this widget's entry in `~/.config/omarchy/shell.json`, so
-they survive restarts and each bar instance keeps its own. The same keys can be
-edited there by hand or through Setup → Plugins:
+they survive restarts and each bar instance keeps its own. The saved disk
+selection and Speed / Used / Both choice are retained when the shell reloads
+widget settings. The same keys can be edited there by hand or through
+Setup → Plugins:
 
 | Key                       | Default                                   | Meaning                                                   |
 |---------------------------|-------------------------------------------|-----------------------------------------------------------|

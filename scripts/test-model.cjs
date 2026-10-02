@@ -149,3 +149,75 @@ test("a ZFS pool counts towards all disks even when its drive is unknown", () =>
   ] } };
   assert.deepEqual(plain(model.diskUsage(snapshot, "all")), { used: 80, size: 200, fraction: 0.4 });
 });
+
+test("saved bar settings identify only the selected instance", () => {
+  const id = "crmne.omastats";
+  const entry = { id, barDisks: "nvme1n1:used", disksSource: "nvme0n1" };
+  const config = { layout: { right: [{ id: "omarchy.clock" }, entry] } };
+  assert.deepEqual(plain(model.savedBarSettings(config, id, null)),
+    { barDisks: "nvme1n1:used", disksSource: "nvme0n1" });
+  assert.equal(model.savedBarSettings(null, id, null), null);
+  assert.equal(model.savedBarSettings(config, "missing", null), null);
+  assert.equal(model.savedBarSettings(config, id, { section: "right", index: 0 }), null);
+  config.layout.left = [{ id, barDisks: "sda:speed" }];
+  assert.equal(model.savedBarSettings(config, id, null), null);
+  assert.deepEqual(plain(model.savedBarSettings(config, id, { section: "right", index: 1 })),
+    { barDisks: "nvme1n1:used", disksSource: "nvme0n1" });
+});
+
+// Execute the widget's own persistence functions with a host that can reapply
+// an old slot snapshot, as the shell does after inline settings changes.
+function persistenceHost(savedEntry, slotSettings, withConfig = true) {
+  let entry = plain(savedEntry);
+  const widget = vm.createContext({
+    Model: model,
+    moduleName: "crmne.omastats",
+    settings: plain(slotSettings),
+    locateSelf: () => null,
+    bar: { shell: { updateEntryInline: (id, next) => { entry = plain(next); } } },
+  });
+  Object.defineProperty(widget, "savedSettings", { get: () => withConfig
+    ? model.savedBarSettings({ layout: { right: [entry] } }, widget.moduleName, null) : null });
+  const source = fs.readFileSync(path.join(__dirname, "../OmaStatsWidget.qml"), "utf8");
+  for (const name of ["persist", "restoreSavedSettings"]) {
+    const code = source.match(new RegExp(`^  function ${name}\\([\\s\\S]*?^  }`, "m"));
+    assert.ok(code, `widget function ${name} is missing`);
+    vm.runInContext(code[0], widget);
+  }
+  return { widget, savedEntry: () => entry };
+}
+
+test("an unrelated edit cannot save a stale disk selection over the current choice", () => {
+  const saved = { id: "crmne.omastats", barDisks: "nvme1n1:used",
+    disksSource: "nvme0n1", graphWidth: 36, disksStyle: "text" };
+  const stale = { ...saved, barDisks: "nvme0n1:speed" };
+  const { widget, savedEntry } = persistenceHost(saved, stale);
+  widget.persist("graphWidth", 48);
+  assert.equal(savedEntry().barDisks, "nvme1n1:used");
+  assert.equal(savedEntry().graphWidth, 48);
+  assert.equal(savedEntry().disksStyle, "text");
+  // Loading the serialized entry again keeps Used on NVMe 1, independently
+  // of the Disks panel's NVMe 0 activity source.
+  assert.deepEqual(plain(model.barDisks(plain(savedEntry()))), [{ disk: "nvme1n1", show: "used" }]);
+});
+
+test("a re-injected slot snapshot restores the saved disk before further edits", () => {
+  const initial = { id: "crmne.omastats", barDisks: "nvme0n1:speed", graphWidth: 36 };
+  const { widget, savedEntry } = persistenceHost(initial, initial);
+  widget.persist("barDisks", "nvme1n1:used");
+  widget.settings = plain(initial);
+  widget.restoreSavedSettings();
+  assert.deepEqual(plain(model.barDisks(widget.settings)), [{ disk: "nvme1n1", show: "used" }]);
+  widget.persist("disksStyle", "text");
+  assert.equal(savedEntry().barDisks, "nvme1n1:used");
+  assert.equal(savedEntry().disksStyle, "text");
+});
+
+test("shells without a saved bar config still persist inline settings", () => {
+  const initial = { id: "crmne.omastats", barDisks: "nvme1n1:used", graphWidth: 36 };
+  const { widget, savedEntry } = persistenceHost(initial, initial, false);
+  widget.persist("graphWidth", 48);
+  widget.restoreSavedSettings();
+  assert.equal(savedEntry().barDisks, "nvme1n1:used");
+  assert.equal(widget.settings.graphWidth, 48);
+});
