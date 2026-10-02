@@ -81,7 +81,7 @@ Panel {
 
   readonly property string barSensors: String(setting("barSensors", Model.SETTINGS.barSensors) || "cpu")
   readonly property string barGpus: String(setting("barGpus", Model.SETTINGS.barGpus) || "all")
-  readonly property string barLabels: String(setting("barLabels", Model.SETTINGS.barLabels)).toLowerCase() === "icon" ? "icon" : "text"
+  readonly property string barLabels: Model.barLabelMode(setting("barLabels", Model.SETTINGS.barLabels))
 
   property string currentTab: "cpu"
   property int tabCursor: -1
