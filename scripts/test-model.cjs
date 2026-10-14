@@ -288,18 +288,20 @@ test("settings written but not yet in shell.json stay saved until the file shows
   assert.deepEqual(plain(model.prunePending(saved, pending, 12000)), {});
 });
 
-test("text fields stay read-only until focused, so they never read the clipboard", () => {
-  const dir = path.join(__dirname, "../ui");
-  let fields = 0;
-  for (const file of fs.readdirSync(dir).filter(name => name.endsWith(".qml"))) {
-    const source = fs.readFileSync(path.join(dir, file), "utf8");
-    for (const block of source.split(/^\s*TextField \{/m).slice(1)) {
-      fields += 1;
-      const body = block.slice(0, block.search(/^\s{0,4}\}/m));
-      assert.match(body, /readOnly: !activeFocus/, `${file} has an always-editable TextField`);
-    }
+test("no text control can read the clipboard, focused or not", () => {
+  // Every editable TextInput, TextField, TextEdit or TextArea asks the
+  // clipboard for its contents whenever another application changes it,
+  // focused or not. Fields are KeyFields, which only take key events.
+  const files = [".", "ui"].flatMap(dir => fs.readdirSync(path.join(__dirname, "..", dir))
+    .filter(name => name.endsWith(".qml")).map(name => path.join(__dirname, "..", dir, name)));
+  let keyFields = 0;
+  for (const file of files) {
+    const code = fs.readFileSync(file, "utf8").replace(/\/\/.*$/gm, "");
+    assert.doesNotMatch(code, /\b(TextField|TextInput|TextEdit|TextArea)\s*\{/, `${path.basename(file)} uses a Qt text input`);
+    assert.doesNotMatch(code, /clipboard|Clipboard/i, `${path.basename(file)} touches the clipboard`);
+    keyFields += (code.match(/\bKeyField\s*\{/g) || []).length;
   }
-  assert.ok(fields >= 2);
+  assert.ok(keyFields >= 2, "the process search and color fields are KeyFields");
 });
 
 test("power readings read as watts", () => {

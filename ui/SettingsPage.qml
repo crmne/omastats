@@ -771,7 +771,8 @@ Column {
       border.width: 1
     }
 
-    TextField {
+    // Not a TextField: see KeyField for why.
+    KeyField {
       id: input
       anchors.right: swatch.left
       anchors.rightMargin: Style.space(6)
@@ -781,11 +782,8 @@ Column {
       height: Style.space(26)
       text: colorRow.settingColor
       placeholderText: "#RRGGBB"
-      // An editable field asks the clipboard for text whenever another
-      // application changes it. Stay read-only until someone types here.
-      readOnly: !activeFocus
       maximumLength: 7
-      horizontalAlignment: TextInput.AlignRight
+      horizontalAlignment: Text.AlignRight
       foreground: root.foreground
       verticalPadding: Style.space(4)
       font.pixelSize: Style.font.caption

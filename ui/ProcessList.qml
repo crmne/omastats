@@ -127,15 +127,13 @@ Column {
     wrapMode: Text.WordWrap
   }
 
-  TextField {
+  // Not a TextField: see KeyField for why.
+  KeyField {
     id: search
     visible: root.expanded
     width: parent.width
     height: visible ? implicitHeight : 0
     placeholderText: "Search processes"
-    // An editable field asks the clipboard for text whenever another
-    // application changes it. Stay read-only until someone types here.
-    readOnly: !activeFocus
     text: root.query
     foreground: root.foreground
     verticalPadding: Style.space(4)
