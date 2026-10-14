@@ -23,6 +23,9 @@ Column {
   readonly property color warn: service ? service.warn : Color.urgent
   readonly property color danger: service ? service.danger : Color.urgent
   readonly property color track: Util.alpha(foreground, 0.16)
+  // Swap is not part of the memory ring, so it has a neutral colour of its
+  // own until it fills up, rather than sharing Apps' series colour.
+  readonly property color swapColor: Util.alpha(foreground, 0.55)
 
   readonly property var mem: snap.mem || ({})
   readonly property var procs: snap.procs || null
@@ -39,14 +42,14 @@ Column {
   // caption once something is actually compressed.
   readonly property var gaugeSpec: {
     if (swapTotal <= 0) {
-      return { value: 0, color: s1, text: "Off", unit: "", label: "Swap", sub: "" }
+      return { value: 0, color: swapColor, text: "Off", unit: "", label: "Swap", sub: "" }
     }
     var frac = swapUsed / swapTotal
     // Just the figure: the ring is small, and "used" is implied by the arc.
     var sub = Model.bytesText(swapUsed > 0 ? swapUsed : swapTotal)
     return {
       value: frac,
-      color: frac >= 0.85 ? danger : (frac >= 0.5 ? warn : s1),
+      color: frac >= 0.85 ? danger : (frac >= 0.5 ? warn : swapColor),
       text: String(Math.round(frac * 100)), unit: "%", label: "Swap", sub: sub
     }
   }
@@ -114,15 +117,6 @@ Column {
     }
 
     StatRow {
-      label: "Cached"
-      dot: root.s2
-      value: root.part(root.mem.cached).value
-      unit: root.part(root.mem.cached).unit
-      foreground: root.foreground
-      fontFamily: root.fontFamily
-    }
-
-    StatRow {
       label: "Shared"
       dot: root.s3
       value: root.part(root.mem.shared).value
@@ -132,11 +126,10 @@ Column {
     }
 
     StatRow {
-      visible: root.hasCompression
-      label: "Compressed"
-      dot: root.warn
-      value: root.part(root.mem.compressed).value
-      unit: root.part(root.mem.compressed).unit
+      label: "Cached"
+      dot: root.s2
+      value: root.part(root.mem.cached).value
+      unit: root.part(root.mem.cached).unit
       foreground: root.foreground
       fontFamily: root.fontFamily
     }
@@ -151,24 +144,42 @@ Column {
     }
 
     StatRow {
-      visible: root.hasSwap
-      label: "Swap"
-      detail: "of " + Model.bytesText(root.mem.swapTotal)
-      dot: Model.num(root.mem.swapUsed) > 0 ? root.danger : "transparent"
-      showDot: true
-      value: root.part(root.mem.swapUsed).value
-      unit: root.part(root.mem.swapUsed).unit
-      foreground: root.foreground
-      fontFamily: root.fontFamily
-    }
-
-    StatRow {
       label: "Total"
       showDot: true
       value: root.part(root.mem.total).value
       unit: root.part(root.mem.total).unit
       labelOpacity: 0.55
       boldValue: false
+      foreground: root.foreground
+      fontFamily: root.fontFamily
+    }
+
+    // Not part of the total above: compressed memory is counted inside it,
+    // and swap is on disk.
+    Item {
+      visible: root.hasCompression || root.hasSwap
+      width: 1
+      height: Style.space(6)
+    }
+
+    StatRow {
+      visible: root.hasCompression
+      label: "Compressed"
+      showDot: true
+      value: root.part(root.mem.compressed).value
+      unit: root.part(root.mem.compressed).unit
+      foreground: root.foreground
+      fontFamily: root.fontFamily
+    }
+
+    StatRow {
+      visible: root.hasSwap
+      label: "Swap"
+      detail: "of " + Model.bytesText(root.mem.swapTotal)
+      dot: Model.num(root.mem.swapUsed) > 0 ? root.gaugeSpec.color : "transparent"
+      showDot: true
+      value: root.part(root.mem.swapUsed).value
+      unit: root.part(root.mem.swapUsed).unit
       foreground: root.foreground
       fontFamily: root.fontFamily
     }
