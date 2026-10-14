@@ -1,6 +1,6 @@
 [package]
 name = "omastats-sampler"
-version = "1.5.1"
+version = "1.6.0"
 edition = "2021"
 description = "System sampler for the OmaStats plugin: one JSON line per tick from procfs and sysfs."
 license = "MIT"
