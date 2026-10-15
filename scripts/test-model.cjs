@@ -304,6 +304,22 @@ test("no text control can read the clipboard, focused or not", () => {
   assert.ok(keyFields >= 2, "the process search and color fields are KeyFields");
 });
 
+test("copied addresses never go on a command line", () => {
+  // wl-copy stays running to serve what it copies, and a process's arguments
+  // are readable by every local user in /proc/<pid>/cmdline, so the text goes
+  // on its standard input.
+  const files = [".", "ui"].flatMap(dir => fs.readdirSync(path.join(__dirname, "..", dir))
+    .filter(name => name.endsWith(".qml")).map(name => path.join(__dirname, "..", dir, name)));
+  for (const file of files) {
+    const code = fs.readFileSync(file, "utf8").replace(/\/\/.*$/gm, "");
+    assert.doesNotMatch(code, /execDetached/, `${path.basename(file)} starts a process with arguments only`);
+    assert.doesNotMatch(code, /"\/usr\/bin\/wl-copy"\s*,/, `${path.basename(file)} passes wl-copy an argument`);
+  }
+  const network = fs.readFileSync(path.join(__dirname, "..", "ui", "NetworkPage.qml"), "utf8");
+  assert.match(network, /command: \["\/usr\/bin\/wl-copy"\]/);
+  assert.match(network, /write\(text\)/);
+});
+
 test("power readings read as watts", () => {
   assert.equal(model.wattsText(167.04), "167 W");
   assert.equal(model.wattsText(4.26), "4.3 W");

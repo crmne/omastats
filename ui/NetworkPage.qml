@@ -1,5 +1,6 @@
 import QtQuick
 import Quickshell
+import Quickshell.Io
 import qs.Commons
 import qs.Ui
 import "../Model.js" as Model
@@ -49,10 +50,26 @@ Column {
   }
 
   function copy(text) {
-    if (!text) return
-    Quickshell.execDetached(["/usr/bin/wl-copy", "--", String(text)])
+    if (!text || copyProcess.running) return
+    copyProcess.text = String(text)
+    copyProcess.stdinEnabled = true
+    copyProcess.running = true
     copiedValue = text
     copiedTimer.restart()
+  }
+
+  // The address reaches wl-copy on its standard input, never as an argument:
+  // wl-copy keeps running to serve it, and a process's arguments are readable
+  // by every local user in /proc/<pid>/cmdline. Closing stdin ends its input.
+  Process {
+    id: copyProcess
+    property string text: ""
+    command: ["/usr/bin/wl-copy"]
+    onStarted: {
+      write(text)
+      stdinEnabled = false
+      text = ""
+    }
   }
 
   Timer {
