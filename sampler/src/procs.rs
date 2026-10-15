@@ -172,12 +172,19 @@ pub fn display_name(pid: u32, comm: &str) -> String {
     if comm.len() < 15 {
         return comm.to_string();
     }
-    if let Some(cmdline) = read_text(format!("/proc/{pid}/cmdline")) {
+    let cmdline = read_text(format!("/proc/{pid}/cmdline"));
+    name_from_cmdline(comm, cmdline.as_deref())
+}
+
+/// Pick between a truncated comm and the executable's basename. Both come
+/// from another process, so the prefix check compares bytes: a multibyte
+/// character may cross any byte offset.
+fn name_from_cmdline(comm: &str, cmdline: Option<&str>) -> String {
+    if let Some(cmdline) = cmdline {
         let first = cmdline.split('\0').next().unwrap_or("");
         let base = first.rsplit('/').next().unwrap_or("");
-        if !base.is_empty()
-            && (base.starts_with(&comm[..8.min(comm.len())]) || base.len() > comm.len())
-        {
+        let prefix = &comm.as_bytes()[..8.min(comm.len())];
+        if !base.is_empty() && (base.as_bytes().starts_with(prefix) || base.len() > comm.len()) {
             return bounded_text(base, EXTERNAL_TEXT_LIMIT);
         }
     }
@@ -405,7 +412,11 @@ impl ProcessSampler {
                 None => continue,
             };
             let comm = stat[open + 1..close].to_string();
-            let fields: Vec<&str> = stat[close + 2..].split_whitespace().collect();
+            let fields: Vec<&str> = stat
+                .get(close + 2..)
+                .unwrap_or("")
+                .split_whitespace()
+                .collect();
             if fields.len() < 22 || fields[0] == "Z" {
                 continue;
             }
@@ -825,5 +836,34 @@ drm-cycles-rcs:\t800\ndrm-total-cycles-rcs:\t2000\n";
         assert_eq!(fdinfo_size("3 MiB"), Some(3 << 20));
         assert_eq!(fdinfo_size("1 GiB"), Some(1 << 30));
         assert_eq!(fdinfo_size("lots"), None);
+    }
+
+    #[test]
+    fn truncated_comm_with_multibyte_character_at_prefix_end() {
+        // 15 bytes, with "é" occupying bytes 7 and 8: byte 8 is not a boundary.
+        let comm = "abcdefgé123456";
+        assert_eq!(comm.len(), 15);
+        assert!(!comm.is_char_boundary(8));
+        assert_eq!(name_from_cmdline(comm, None), comm);
+        assert_eq!(name_from_cmdline(comm, Some("")), comm);
+        assert_eq!(name_from_cmdline(comm, Some("/usr/bin/other\0--flag")), comm);
+        assert_eq!(
+            name_from_cmdline(comm, Some("/opt/abcdefgé1234567890\0--flag")),
+            "abcdefgé1234567890"
+        );
+        assert_eq!(
+            name_from_cmdline(comm, Some("/opt/abcdefg\u{e9}\0")),
+            "abcdefgé"
+        );
+    }
+
+    #[test]
+    fn truncated_comm_prefers_longer_executable_name() {
+        let comm = "longprocessname";
+        assert_eq!(
+            name_from_cmdline(comm, Some("/usr/bin/longprocessname-helper\0x")),
+            "longprocessname-helper"
+        );
+        assert_eq!(name_from_cmdline(comm, Some("/usr/bin/sh\0x")), comm);
     }
 }
