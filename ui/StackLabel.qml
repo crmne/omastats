@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Window
 import qs.Commons
+import qs.Commons as Commons
 
 // iStat-style vertical label: the letters of a short name stacked one per
 // row, small and bold, so "CPU" reads at a glance without a glyph.
@@ -8,7 +9,7 @@ Item {
   id: root
 
   property string text: ""
-  property color color: Color.foreground
+  property color color: Commons.Color.foreground
   property string fontFamily: Style.font.family
   property real letterSize: Style.spaceReal(10)
   // Fit by cap height and keep a physical pixel between baselines. A single

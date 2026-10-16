@@ -1,5 +1,6 @@
 import QtQuick
 import qs.Commons
+import qs.Commons as Commons
 import "../Model.js" as Model
 
 Column {
@@ -10,18 +11,18 @@ Column {
   property var settings: ({})
   property string temperatureUnit: "Celsius"
   property bool publicIpEnabled: true
-  property color foreground: Color.popups.text
+  property color foreground: Commons.Color.popups.text
   property string fontFamily: Style.font.family
 
   function flag(key) { return Model.flag(settings, key) }
 
   readonly property var snap: service ? service.snapshot : ({})
   readonly property var hist: service ? service.history : Model.emptyHistory()
-  readonly property color s1: service ? service.series1 : Color.accent
-  readonly property color s2: service ? service.series2 : Color.accent
-  readonly property color s3: service ? service.tertiary : Color.accent
-  readonly property color warn: service ? service.warn : Color.urgent
-  readonly property color danger: service ? service.danger : Color.urgent
+  readonly property color s1: service ? service.series1 : Commons.Color.accent
+  readonly property color s2: service ? service.series2 : Commons.Color.accent
+  readonly property color s3: service ? service.tertiary : Commons.Color.accent
+  readonly property color warn: service ? service.warn : Commons.Color.urgent
+  readonly property color danger: service ? service.danger : Commons.Color.urgent
   readonly property color track: Util.alpha(foreground, 0.16)
   // Swap is not part of the memory ring, so it has a neutral colour of its
   // own until it fills up, rather than sharing Apps' series colour.

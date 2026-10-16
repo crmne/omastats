@@ -1,5 +1,6 @@
 import QtQuick
 import qs.Commons
+import qs.Commons as Commons
 
 // Legend row under a graph: "● User      86%    ● System     2%".
 // Items are {color, label, value, unit}; each takes an equal share of
@@ -8,7 +9,7 @@ Item {
   id: root
 
   property var items: []
-  property color foreground: Color.popups.text
+  property color foreground: Commons.Color.popups.text
   property string fontFamily: Style.font.family
 
   width: parent ? parent.width : implicitWidth

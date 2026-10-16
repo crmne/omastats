@@ -1,5 +1,6 @@
 import QtQuick
 import qs.Commons
+import qs.Commons as Commons
 
 // Headline figure with a caption under it: "47.1 MB/s" over "Read".
 Column {
@@ -8,7 +9,7 @@ Column {
   property string value: ""
   property string unit: ""
   property string label: ""
-  property color foreground: Color.popups.text
+  property color foreground: Commons.Color.popups.text
   property string fontFamily: Style.font.family
   property int align: Text.AlignHCenter
 

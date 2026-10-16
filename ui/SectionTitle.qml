@@ -1,5 +1,6 @@
 import QtQuick
 import qs.Commons
+import qs.Commons as Commons
 
 // Small-caps section label in the accent colour, iStat-style ("PROCESSES",
 // "TEMPERATURE", "PUBLIC IP ADDRESSES").
@@ -9,7 +10,7 @@ Text {
   property string fontFamily: Style.font.family
 
   textFormat: Text.PlainText
-  color: Color.accent
+  color: Commons.Color.accent
   font.family: fontFamily
   font.pixelSize: Style.font.caption
   font.bold: true

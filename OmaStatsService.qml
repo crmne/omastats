@@ -2,6 +2,7 @@ import QtQuick
 import Quickshell
 import Quickshell.Io
 import qs.Commons
+import qs.Commons as Commons
 import "Model.js" as Model
 
 // One sampler process per shell, shared by every bar instance on every
@@ -28,7 +29,7 @@ Item {
   property var instances: []
   property bool destroying: false
 
-  readonly property var palette: Model.pickPalette(themeColors, Color.accent, Color.foreground, Color.background, Color.urgent)
+  readonly property var palette: Model.pickPalette(themeColors, Commons.Color.accent, Commons.Color.foreground, Commons.Color.background, Commons.Color.urgent)
   readonly property color series1: palette.series1
   readonly property color series2: palette.series2
   readonly property color tertiary: palette.tertiary
@@ -294,7 +295,7 @@ Item {
   // shell's Color singleton, so read colors.toml directly for the graph hues.
   FileView {
     id: colorsFile
-    path: Color.currentThemePath + "/colors.toml"
+    path: Commons.Color.currentThemePath + "/colors.toml"
     watchChanges: true
     printErrors: false
     onLoaded: root.themeColors = Model.parseColorsToml(text())
@@ -303,7 +304,7 @@ Item {
   }
 
   Connections {
-    target: Color
+    target: Commons.Color
     function onAccentChanged() { colorsFile.reload() }
     function onBackgroundChanged() { colorsFile.reload() }
     function onForegroundChanged() { colorsFile.reload() }

@@ -1,5 +1,6 @@
 import QtQuick
 import qs.Commons
+import qs.Commons as Commons
 
 // One "label ....... value unit" line, optionally keyed by a colour dot on
 // the left and finished by a trailing control (a mini ring) on the right.
@@ -12,7 +13,7 @@ Item {
   property string unit: ""
   property color dot: "transparent"
   property bool showDot: dot.a > 0
-  property color foreground: Color.popups.text
+  property color foreground: Commons.Color.popups.text
   property string fontFamily: Style.font.family
   property real labelOpacity: 0.85
   property bool boldValue: true

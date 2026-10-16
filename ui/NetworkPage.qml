@@ -2,6 +2,7 @@ import QtQuick
 import Quickshell
 import Quickshell.Io
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 import "../Model.js" as Model
 
@@ -13,7 +14,7 @@ Column {
   property var settings: ({})
   property string temperatureUnit: "Celsius"
   property bool publicIpEnabled: true
-  property color foreground: Color.popups.text
+  property color foreground: Commons.Color.popups.text
   property string fontFamily: Style.font.family
 
   function flag(key) { return Model.flag(settings, key) }
@@ -21,8 +22,8 @@ Column {
 
   readonly property var snap: service ? service.snapshot : ({})
   readonly property var hist: service ? service.history : Model.emptyHistory()
-  readonly property color s1: service ? service.series1 : Color.accent
-  readonly property color s2: service ? service.series2 : Color.accent
+  readonly property color s1: service ? service.series1 : Commons.Color.accent
+  readonly property color s2: service ? service.series2 : Commons.Color.accent
 
   readonly property var net: snap.net || ({})
   readonly property var connections: Array.isArray(net.procs) ? net.procs : []
@@ -318,7 +319,7 @@ Column {
       anchors.leftMargin: -Style.space(6)
       anchors.rightMargin: -Style.space(6)
       radius: Style.cornerRadius
-      color: mouse.containsMouse && addr.value !== "" ? Style.hoverFillFor(root.foreground, Color.accent) : "transparent"
+      color: mouse.containsMouse && addr.value !== "" ? Style.hoverFillFor(root.foreground, Commons.Color.accent) : "transparent"
     }
 
     Text {

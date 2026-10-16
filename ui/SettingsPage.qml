@@ -1,5 +1,6 @@
 import QtQuick
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 import "../Model.js" as Model
 
@@ -15,10 +16,10 @@ Column {
   property int focusedColorEditors: 0
   property string temperatureUnit: "Celsius"
   property bool publicIpEnabled: true
-  property color foreground: Color.popups.text
+  property color foreground: Commons.Color.popups.text
   property string fontFamily: Style.font.family
   readonly property bool lightTheme: host && host.bar && !host.bar.transparent && host.bar.background.a >= 0.95
-    ? host.bar.background.hslLightness > 0.5 : (host && host.bar ? host.bar.barForeground : Color.bar.text).hslLightness < 0.5
+    ? host.bar.background.hslLightness > 0.5 : (host && host.bar ? host.bar.barForeground : Commons.Color.bar.text).hslLightness < 0.5
 
   readonly property bool hasGpu: !!(service && service.hasGpu)
   readonly property bool hasBattery: !!(service && service.hasBattery)
@@ -636,7 +637,7 @@ Column {
       options: choiceRow.options
       value: choiceRow.value
       foreground: root.foreground
-      background: Color.popups.background
+      background: Commons.Color.popups.background
       fontFamily: root.fontFamily
       fontSize: Style.font.caption
       focusable: false
@@ -817,7 +818,7 @@ Column {
       anchors.left: parent.left
       anchors.bottom: parent.bottom
       text: "Use a six-digit hex color, or clear for the theme default."
-      color: Color.urgent
+      color: Commons.Color.urgent
       font.family: root.fontFamily
       font.pixelSize: Style.font.caption
     }
