@@ -9,7 +9,7 @@ shows, in the bar and in the panel, is configurable from inside the panel.
 
 OmaStats is an independent project and is not affiliated with Bjango.
 
-![The OmaStats bar readouts with the CPU and Memory panels open, using synthetic demo data](preview.png)
+![The OmaStats Memory and CPU pages side by side, using synthetic demo data](preview.png)
 
 ![Memory, Network, Sensors and Settings pages](preview-pages.png)
 
