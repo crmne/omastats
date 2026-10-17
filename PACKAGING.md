@@ -6,7 +6,7 @@ DEB/RPM contents, dependencies, recipe templates and downstream repositories.
 Application assets and native recipes stay in `packaging/`.
 
 ```sh
-gem install native-packages --version 0.5.1
+gem install native-packages --version 0.10.0
 native-packages validate
 native-packages doctor
 native-packages build --release v1.2.3
@@ -45,7 +45,7 @@ Homebrew automation needs `PUBLISH_HOMEBREW=true` and
 The existing macOS, Windows and Flatpak build/signing steps remain responsible
 for their native artifacts. Additional nFPM formats require suitable platform
 inputs and dependencies; adding a format does not port the application.
-See the [shared CLI documentation](https://github.com/crmne/native-packages/tree/v0.5.1)
+See the [shared CLI documentation](https://github.com/crmne/native-packages/tree/v0.10.0)
 for commands and supported formats.
 
 To upgrade the tool, change `tool.version` in `native-packages.yaml`, the

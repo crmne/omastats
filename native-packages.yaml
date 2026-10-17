@@ -1,8 +1,8 @@
-# Shared CLI: gem install native-packages --version 0.5.1
+# Shared CLI: gem install native-packages --version 0.10.0
 ---
 schema: 1
 tool:
-  version: 0.5.1
+  version: 0.10.0
   nfpm: 2.47.0
 nfpm:
   name: omastats-sampler
