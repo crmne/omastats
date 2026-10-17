@@ -1,5 +1,6 @@
 import QtQuick
 import qs.Commons
+import qs.Commons as Commons
 
 // Card title line: name in the accent on the left, a quiet detail on the
 // right ("CPU" ......... "4.85 GHz, 49°").
@@ -8,7 +9,7 @@ Item {
 
   property string title: ""
   property string detail: ""
-  property color foreground: Color.popups.text
+  property color foreground: Commons.Color.popups.text
   property string fontFamily: Style.font.family
 
   width: parent ? parent.width : implicitWidth
@@ -21,7 +22,7 @@ Item {
     anchors.left: parent.left
     anchors.verticalCenter: parent.verticalCenter
     text: root.title
-    color: Color.accent
+    color: Commons.Color.accent
     font.family: root.fontFamily
     font.pixelSize: Style.font.subtitle
     font.bold: true

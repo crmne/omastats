@@ -1,5 +1,6 @@
 import QtQuick
 import qs.Commons
+import qs.Commons as Commons
 
 // A number and its unit set as one figure: "47.1" in the text colour with a
 // smaller, quieter "MB/s" hanging off its baseline. Units never wear the
@@ -9,7 +10,7 @@ Row {
 
   property string value: ""
   property string unit: ""
-  property color foreground: Color.popups.text
+  property color foreground: Commons.Color.popups.text
   property string fontFamily: Style.font.family
   property real valueSize: Style.font.body
   property real unitSize: Style.font.caption

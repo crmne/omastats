@@ -1,5 +1,6 @@
 import QtQuick
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 import "../Model.js" as Model
 
@@ -15,7 +16,7 @@ Item {
   property string settingsTab: ""
   property string current: ""
   property int cursorIndex: -1
-  property color foreground: Color.popups.text
+  property color foreground: Commons.Color.popups.text
   property string fontFamily: Style.font.family
 
   signal activated(string id)
@@ -75,8 +76,8 @@ Item {
         height: root.pillHeight
         radius: Style.cornerRadius
         color: slot.active
-          ? Style.selectedFillFor(root.foreground, Color.accent)
-          : (slot.hot ? Style.hoverFillFor(root.foreground, Color.accent) : "transparent")
+          ? Style.selectedFillFor(root.foreground, Commons.Color.accent)
+          : (slot.hot ? Style.hoverFillFor(root.foreground, Commons.Color.accent) : "transparent")
         border.width: slot.active ? 1 : 0
         border.color: Util.alpha(root.foreground, 0.12)
 
