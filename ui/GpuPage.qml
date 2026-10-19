@@ -1,5 +1,6 @@
 import QtQuick
 import qs.Commons
+import qs.Commons as Commons
 import "../Model.js" as Model
 
 // The GPU's own page: utilisation history, memory and power. It used to be a
@@ -13,14 +14,14 @@ Column {
   property var settings: ({})
   property string temperatureUnit: "Celsius"
   property bool publicIpEnabled: true
-  property color foreground: Color.popups.text
+  property color foreground: Commons.Color.popups.text
   property string fontFamily: Style.font.family
 
   readonly property var snap: service ? service.snapshot : ({})
   readonly property var hist: service ? service.history : Model.emptyHistory()
-  readonly property bool lightTheme: Color.popups.background.hslLightness > 0.5
-  readonly property color s1: service ? service.series1 : Color.accent
-  readonly property color s2: service ? service.series2 : Color.accent
+  readonly property bool lightTheme: Commons.Color.popups.background.hslLightness > 0.5
+  readonly property color s1: service ? service.series1 : Commons.Color.accent
+  readonly property color s2: service ? service.series2 : Commons.Color.accent
   readonly property var gpuCards: Model.gpuList(snap)
 
   function headerDetail(mhz, temp) {

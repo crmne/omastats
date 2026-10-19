@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Controls
 import Quickshell
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 import "Model.js" as Model
 import "ui" as UI
@@ -78,7 +79,7 @@ Panel {
   }
   readonly property var moduleTabs: Model.panelTabs(hasBattery, Model.settingValue(settings, "tabs"), hasGpu)
   readonly property var panelTabs: moduleTabs.concat(["settings"])
-  readonly property color fg: Color.popups.text
+  readonly property color fg: Commons.Color.popups.text
   readonly property string fontFamily: bar ? bar.fontFamily : Style.font.family
   readonly property string instanceKey: moduleName + ":" + Math.random().toString(36).slice(2, 8)
 

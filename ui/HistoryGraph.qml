@@ -1,5 +1,6 @@
 import QtQuick
 import qs.Commons
+import qs.Commons as Commons
 
 // iStat-style bar history: one thin vertical bar per sample, newest at the
 // right, stacked bottom-to-top when several series are given. Bars are
@@ -16,7 +17,7 @@ Canvas {
   property int barWidth: 2
   property int gap: 1
   property bool showBaseline: true
-  property color baselineColor: Util.alpha(Color.popups.text, 0.14)
+  property color baselineColor: Util.alpha(Commons.Color.popups.text, 0.14)
 
   readonly property int pitch: Math.max(1, barWidth + gap)
   readonly property int capacity: Math.max(1, Math.floor((width + gap) / pitch))
@@ -75,7 +76,7 @@ Canvas {
         var perSeries = root.sampleColors[c]
         var sampleColor = Array.isArray(perSeries) ? perSeries[idx] : null
         ctx.globalAlpha = c === 1 && sampleColor ? 0.62 : 1
-        ctx.fillStyle = sampleColor || root.colors[c] || Color.accent
+        ctx.fillStyle = sampleColor || root.colors[c] || Commons.Color.accent
         ctx.fillRect(snap(x), top, Math.max(1 / dpr, snap(root.barWidth)), bottom - top)
         ctx.globalAlpha = 1
         y -= h

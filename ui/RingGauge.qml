@@ -1,5 +1,6 @@
 import QtQuick
 import qs.Commons
+import qs.Commons as Commons
 
 // Ring gauge with a figure in the middle. Either a single `value` (0..1) in
 // `color`, or `segments` — an ordered list of {value, color} slices drawn
@@ -10,9 +11,9 @@ Item {
   property real size: Style.space(76)
   property real thickness: Style.space(5)
   property real value: -1
-  property color color: Color.accent
+  property color color: Commons.Color.accent
   property var segments: []
-  property color foreground: Color.popups.text
+  property color foreground: Commons.Color.popups.text
   property color trackColor: Util.alpha(foreground, 0.10)
   property string fontFamily: Style.font.family
   property string topText: ""

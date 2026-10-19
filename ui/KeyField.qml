@@ -1,5 +1,6 @@
 import QtQuick
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 
 // A single-line field built from key events instead of Qt's text input.
@@ -20,8 +21,8 @@ Item {
   property string placeholderText: ""
   property int maximumLength: 32767
   property int horizontalAlignment: Text.AlignLeft
-  property color foreground: Color.foreground
-  property color accent: Color.accent
+  property color foreground: Commons.Color.foreground
+  property color accent: Commons.Color.accent
   property real horizontalPadding: Style.spacing.controlPaddingX
   property real verticalPadding: Style.spacing.inputPaddingY
   property alias font: label.font
