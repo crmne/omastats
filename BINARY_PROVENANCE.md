@@ -50,12 +50,21 @@ narrow:
 - `ip` for interface addresses, `iw` for Wi-Fi details, and `ss` for TCP socket
   counters;
 - `zfs list` and `zpool list` for ZFS pool space and vdevs, only when a ZFS
-  dataset is mounted; and
+  dataset is mounted;
+- `systemctl is-enabled fstrim.timer`, to tell whether SSDs are trimmed, only
+  when a filesystem that can be trimmed is mounted; and
 - `curl` to one of the three fixed IP-only HTTPS endpoints documented in the
   README, solely when public-IP display is enabled.
 
 Each helper is passed a fixed argument structure without shell evaluation.
 Missing helpers simply make the corresponding optional field unavailable.
+
+The sampler never changes the system. The Disks page's Fix buttons are the
+only path that does, and only on a click: the panel opens the user's terminal
+through `xdg-terminal-exec` with a fixed script from `Model.js`, which shows
+each command and asks before running it with `sudo`. Device and volume names
+reach that script as separate arguments, and only when they consist of plain
+characters; they are never spliced into its text.
 
 ## What CI proves
 
