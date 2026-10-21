@@ -8,6 +8,7 @@ import Quickshell
 import Quickshell.Io
 import Quickshell.Wayland
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 import "plugin" as Plugin
 import "plugin/Model.js" as Model
@@ -90,7 +91,7 @@ ShellRoot {
     property string samplerError: ""
     property var savedBarConfig: null
     property var themeColors: ({})
-    readonly property var palette: Model.pickPalette(themeColors, Color.accent, Color.foreground, Color.background, Color.urgent)
+    readonly property var palette: Model.pickPalette(themeColors, Commons.Color.accent, Commons.Color.foreground, Commons.Color.background, Commons.Color.urgent)
     readonly property color series1: palette.series1
     readonly property color series2: palette.series2
     readonly property color tertiary: palette.tertiary
@@ -112,7 +113,7 @@ ShellRoot {
 
     // The theme's named colours, as the real service reads them.
     FileView {
-      path: Color.currentThemePath + "/colors.toml"
+      path: Commons.Color.currentThemePath + "/colors.toml"
       printErrors: false
       onLoaded: service.themeColors = Model.parseColorsToml(text())
     }
@@ -126,9 +127,9 @@ ShellRoot {
     property int barSize: 40
     property var activePopout: null
     property var clickTargets: []
-    property color barForeground: Color.foreground
-    property color foreground: Color.foreground
-    property color background: Color.background
+    property color barForeground: Commons.Color.foreground
+    property color foreground: Commons.Color.foreground
+    property color background: Commons.Color.background
     property bool transparent: false
     property string fontFamily: Style.font.family
     property var shell: QtObject {
@@ -162,7 +163,7 @@ ShellRoot {
       anchors.centerIn: parent
       width: widget.implicitWidth + 48
       height: parent.height
-      color: Color.background
+      color: Commons.Color.background
 
       Plugin.OmaStatsWidget {
         id: widget
