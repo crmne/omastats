@@ -59,7 +59,7 @@ Column {
   readonly property var sensorOptions: Model.sensorOptions(snapshot)
   // Choices saved before devices had ids read as the ids they now map to.
   readonly property var stableSettings: Model.withStableSettings(settings, snapshot)
-  readonly property var barDiskList: Model.barDisks(stableSettings)
+  readonly property var barDiskList: Model.barDisksHere(snapshot, stableSettings)
   readonly property var barSensorIds: Model.parseList(Model.settingValue(stableSettings, "barSensors"))
   readonly property var gpuOptions: Model.gpuList(snapshot)
   // "all" keeps a GPU added later visible without another visit here.
@@ -71,7 +71,13 @@ Column {
       for (var i = 0; i < gpuOptions.length; i++) every.push(Model.gpuId(gpuOptions[i]))
       return every
     }
-    return Model.parseList(text)
+    var ids = Model.parseList(text)
+    // Cards saved on another machine (a synced shell.json) read as "all",
+    // matching the bar.
+    for (var j = 0; j < ids.length; j++) if (gpuOrder(ids[j]) < gpuOptions.length) return ids
+    var all = []
+    for (var k = 0; k < gpuOptions.length; k++) all.push(Model.gpuId(gpuOptions[k]))
+    return all
   }
 
   // Position in the sampler's order (boot display first), so the bar keeps a

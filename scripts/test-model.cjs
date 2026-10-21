@@ -339,3 +339,16 @@ test("bar label mode keeps inline and falls back to stacked letters", () => {
   assert.equal(model.barLabelMode(undefined), "text");
   assert.equal(model.barLabelMode(null), "text");
 });
+
+test("bar choices synced from another machine fall back to this one's devices", () => {
+  const gpus = [{ id: "0000:c4:00.0", vendor: "amd", util: 3 }];
+  assert.deepEqual(plain(model.selectedGpus({ gpus }, "0000:01:00.0")), gpus);
+  assert.deepEqual(plain(model.selectedGpus({ gpus }, "none")), []);
+  const snapshot = { disks: { perDisk: { nvme0n1: { id: "nvme-MTFDKBA1T0QFM" } } } };
+  const synced = { barDisks: "nvme-KIOXIA-EXCERIA_G3_SSD_YFWKS0TJZ3TS:used" };
+  assert.deepEqual(plain(model.barDisksHere(snapshot, synced)), [{ disk: "all", show: "used" }]);
+  const mixed = { barDisks: "nvme-KIOXIA-EXCERIA_G3_SSD_YFWKS0TJZ3TS:used,nvme-MTFDKBA1T0QFM:speed" };
+  assert.deepEqual(plain(model.barDisksHere(snapshot, mixed)), plain(model.barDisks(mixed)));
+  assert.deepEqual(plain(model.barDisksHere({}, synced)), plain(model.barDisks(synced)));
+  assert.deepEqual(plain(model.barDisksHere(snapshot, { barDisks: "none" })), []);
+});

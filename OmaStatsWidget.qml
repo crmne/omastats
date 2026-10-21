@@ -33,7 +33,7 @@ Panel {
     var snapshot = service ? service.snapshot : null
     var perDisk = snapshot && snapshot.disks ? (snapshot.disks.perDisk || {}) : {}
     var known = Object.keys(perDisk).length > 0
-    var list = Model.barDisks(settings)
+    var list = Model.barDisksHere(snapshot, settings)
     var out = []
     for (var i = 0; i < list.length; i++) {
       var name = Model.resolveDisk(snapshot, list[i].disk)

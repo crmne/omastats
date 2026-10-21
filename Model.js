@@ -137,7 +137,9 @@ function selectedGpus(snapshot, raw) {
   for (var i = 0; i < ids.length; i++) {
     for (var j = 0; j < all.length; j++) if (gpuId(all[j]) === ids[i]) out.push(all[j])
   }
-  return out
+  // A shell.json synced from another machine names cards this one lacks;
+  // its own cards stand in until the user picks here.
+  return out.length > 0 ? out : all
 }
 
 // Short bar tag. Several GPUs in the bar would otherwise all read "GPU".
@@ -395,6 +397,16 @@ function barDisks(settings) {
     out.push({ disk: disk, show: show || "speed" })
   }
   return out
+}
+
+// barDisks on this machine. When every saved drive is missing, as when
+// shell.json is synced from another computer, one readout covers all disks.
+function barDisksHere(snapshot, settings) {
+  var list = barDisks(settings)
+  var perDisk = snapshot && snapshot.disks ? (snapshot.disks.perDisk || {}) : {}
+  if (list.length === 0 || Object.keys(perDisk).length === 0) return list
+  for (var i = 0; i < list.length; i++) if (resolveDisk(snapshot, list[i].disk) !== "") return list
+  return [{ disk: "all", show: list[0].show }]
 }
 
 function barDisksText(list) {
