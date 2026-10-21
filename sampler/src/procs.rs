@@ -13,6 +13,8 @@ const PROCESS_SCAN_LIMIT: usize = 16_384;
 const FD_SCAN_LIMIT: usize = 4096;
 const PROC_FILE_LIMIT: u64 = 64 * 1024;
 const SOCKET_SCAN_LIMIT: usize = 16_384;
+/// Open files read per process when tying its I/O to drives.
+const DRIVE_FD_LIMIT: usize = 256;
 
 #[derive(Clone, Copy)]
 struct Prev {
@@ -29,6 +31,8 @@ struct Group {
     read: f64,
     write: f64,
     count: u32,
+    /// Drives this group has files open on, when drives were asked for.
+    drives: HashSet<String>,
 }
 
 pub struct ProcessSampler {
@@ -94,7 +98,11 @@ fn parse_drm_fdinfo(text: &str) -> Option<DrmClient> {
             client.id = value.to_string();
         } else if let Some(engine) = key.strip_prefix("drm-engine-capacity-") {
             let capacity = value.parse().unwrap_or(1).max(1);
-            client.engines.entry(engine.to_string()).or_default().capacity = capacity;
+            client
+                .engines
+                .entry(engine.to_string())
+                .or_default()
+                .capacity = capacity;
         } else if let Some(engine) = key.strip_prefix("drm-engine-") {
             let busy = value.trim_end_matches("ns").trim().parse().unwrap_or(0);
             client.engines.entry(engine.to_string()).or_default().busy = busy;
@@ -168,6 +176,14 @@ fn client_busy(
 
 /// A readable name for a process: the kernel's 15-character comm, or the
 /// executable's basename when comm looks truncated.
+/// The mount id line of /proc/<pid>/fdinfo/<fd>.
+fn parse_mnt_id(fdinfo: &str) -> Option<u64> {
+    fdinfo
+        .lines()
+        .find_map(|line| line.strip_prefix("mnt_id:"))
+        .and_then(|v| v.trim().parse().ok())
+}
+
 pub fn display_name(pid: u32, comm: &str) -> String {
     if comm.len() < 15 {
         return comm.to_string();
@@ -349,7 +365,11 @@ impl ProcessSampler {
                     b.util
                         .partial_cmp(&a.util)
                         .unwrap_or(std::cmp::Ordering::Equal)
-                        .then(b.mem.partial_cmp(&a.mem).unwrap_or(std::cmp::Ordering::Equal))
+                        .then(
+                            b.mem
+                                .partial_cmp(&a.mem)
+                                .unwrap_or(std::cmp::Ordering::Equal),
+                        )
                         .then(a.name.cmp(&b.name))
                 });
                 let rows = list
@@ -379,7 +399,34 @@ impl ProcessSampler {
         Some(&self.buffer)
     }
 
-    pub fn sample(&mut self, elapsed: f64, full: bool) -> Value {
+    /// Mount ids of the files a process has open, read from fdinfo so the
+    /// files themselves are never touched: stat on a file on a dead network
+    /// mount would block.
+    fn open_mounts(&mut self, pid: u32) -> HashSet<u64> {
+        let mut mounts = HashSet::new();
+        let Ok(entries) = fs::read_dir(format!("/proc/{pid}/fdinfo")) else {
+            return mounts;
+        };
+        for entry in entries.filter_map(Result::ok).take(DRIVE_FD_LIMIT) {
+            let path = entry.path();
+            let Some(text) = path.to_str().and_then(|p| self.read_small(p)) else {
+                continue;
+            };
+            if let Some(id) = parse_mnt_id(&String::from_utf8_lossy(text)) {
+                mounts.insert(id);
+            }
+        }
+        mounts
+    }
+
+    /// Top processes by disk I/O and, given each mount's drive, the top
+    /// processes with files open on each drive under "ioByDrive".
+    pub fn sample(
+        &mut self,
+        elapsed: f64,
+        full: bool,
+        drives: Option<&HashMap<u64, String>>,
+    ) -> Value {
         let mut current: HashMap<u32, Prev> = HashMap::new();
         let mut groups: HashMap<String, Group> = HashMap::new();
         let mut names: HashMap<u32, String> = HashMap::new();
@@ -469,6 +516,14 @@ impl ProcessSampler {
                 None => display_name(pid, &comm),
             };
             names.insert(pid, display.clone());
+            let mut on_drives = HashSet::new();
+            if let Some(drives) = drives.filter(|_| io_read + io_write > 0.0) {
+                for mount in self.open_mounts(pid) {
+                    if let Some(key) = drives.get(&mount) {
+                        on_drives.insert(key.clone());
+                    }
+                }
+            }
             let group = groups.entry(display.clone()).or_insert_with(|| Group {
                 name: display,
                 pid,
@@ -477,7 +532,9 @@ impl ProcessSampler {
                 read: 0.0,
                 write: 0.0,
                 count: 0,
+                drives: HashSet::new(),
             });
+            group.drives.extend(on_drives);
             group.cpu += cpu.max(0.0);
             group.mem += rss;
             group.read += io_read;
@@ -531,6 +588,18 @@ impl ProcessSampler {
             .collect();
 
         let mut out = json!({ "cpu": cpu, "mem": mem, "io": io, "total": groups.len() });
+        if drives.is_some() {
+            let mut by_drive: HashMap<&str, Vec<Value>> = HashMap::new();
+            for group in list.iter().take_while(|g| g.read + g.write > 0.0) {
+                for drive in &group.drives {
+                    let rows = by_drive.entry(drive.as_str()).or_default();
+                    if rows.len() < PROC_LIMIT {
+                        rows.push(to_json(group));
+                    }
+                }
+            }
+            out["ioByDrive"] = json!(by_drive);
+        }
         if let Some(all) = all {
             out["all"] = Value::Array(all);
         }
@@ -774,6 +843,15 @@ drm-resident-gtt:\t2 MiB\ndrm-resident-cpu:\t0\ndrm-memory-vram:\t12 KiB\n\
 drm-engine-gfx:\t6438199656611 ns\ndrm-engine-compute:\t99404265 ns\n";
 
     #[test]
+    fn fdinfo_names_the_mount_a_file_lives_on() {
+        assert_eq!(
+            parse_mnt_id("pos:\t0\nflags:\t0100002\nmnt_id:\t32\nino:\t1234\n"),
+            Some(32)
+        );
+        assert_eq!(parse_mnt_id("pos:\t0\n"), None);
+    }
+
+    #[test]
     fn amdgpu_fdinfo_gives_engines_and_regions() {
         let client = parse_drm_fdinfo(AMDGPU).expect("a DRM client");
         assert_eq!(client.pdev, "0000:11:00.0");
@@ -792,7 +870,11 @@ drm-engine-gfx:\t6438199656611 ns\ndrm-engine-compute:\t99404265 ns\n";
 
     #[test]
     fn busy_time_becomes_the_busiest_engines_share() {
-        let counter = |busy| EngineCounter { busy, total: None, capacity: 1 };
+        let counter = |busy| EngineCounter {
+            busy,
+            total: None,
+            capacity: 1,
+        };
         let before = HashMap::from([
             ("gfx".to_string(), counter(1_000_000_000)),
             ("compute".to_string(), counter(0)),
@@ -820,11 +902,19 @@ drm-cycles-rcs:\t800\ndrm-total-cycles-rcs:\t2000\n";
     fn engine_capacity_divides_the_share() {
         let before = HashMap::from([(
             "vcn".to_string(),
-            EngineCounter { busy: 0, total: None, capacity: 2 },
+            EngineCounter {
+                busy: 0,
+                total: None,
+                capacity: 2,
+            },
         )]);
         let now = HashMap::from([(
             "vcn".to_string(),
-            EngineCounter { busy: 1_000_000_000, total: None, capacity: 2 },
+            EngineCounter {
+                busy: 1_000_000_000,
+                total: None,
+                capacity: 2,
+            },
         )]);
         assert_eq!(client_busy(&now, Some(&before), 1.0), 50.0);
     }
@@ -846,7 +936,10 @@ drm-cycles-rcs:\t800\ndrm-total-cycles-rcs:\t2000\n";
         assert!(!comm.is_char_boundary(8));
         assert_eq!(name_from_cmdline(comm, None), comm);
         assert_eq!(name_from_cmdline(comm, Some("")), comm);
-        assert_eq!(name_from_cmdline(comm, Some("/usr/bin/other\0--flag")), comm);
+        assert_eq!(
+            name_from_cmdline(comm, Some("/usr/bin/other\0--flag")),
+            comm
+        );
         assert_eq!(
             name_from_cmdline(comm, Some("/opt/abcdefgé1234567890\0--flag")),
             "abcdefgé1234567890"

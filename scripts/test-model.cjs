@@ -352,3 +352,56 @@ test("bar choices synced from another machine fall back to this one's devices", 
   assert.deepEqual(plain(model.barDisksHere({}, synced)), plain(model.barDisks(synced)));
   assert.deepEqual(plain(model.barDisksHere(snapshot, { barDisks: "none" })), []);
 });
+
+test("volumes group as internal, external and network, keyed by drive", () => {
+  const volumes = [
+    { mount: "/mnt/nas", kind: "network", key: "//nas/music", disk: "" },
+    { mount: "/", kind: "internal", key: "nvme0n1", disk: "nvme0n1" },
+    { mount: "/run/media/me/STICK", kind: "external", key: "sdd", disk: "sdd" },
+    { mount: "/old", disk: "sda" },
+  ];
+  const groups = plain(model.volumeGroups(volumes));
+  assert.deepEqual(groups.map(g => [g.kind, g.items.map(i => i.volume.mount)]), [
+    ["internal", ["/", "/old"]], ["external", ["/run/media/me/STICK"]], ["network", ["/mnt/nas"]],
+  ]);
+  assert.equal(model.volumeKey(volumes[0]), "//nas/music");
+  assert.equal(model.volumeKey(volumes[3]), "sda");
+  assert.deepEqual(plain(model.volumeGroups(undefined)), []);
+});
+
+test("a drive stalls the system only when busy while every task waits", () => {
+  assert.equal(model.driveHealth({ busy: 99, latency: 84, queue: 40 }, 31, false).level, "danger");
+  assert.equal(model.driveHealth({ busy: 99, latency: 84, queue: 40 }, 2, false).level, "warn");
+  assert.equal(model.driveHealth({ busy: 99, latency: 60, queue: 2 }, 2, true).level, "");
+  assert.equal(model.driveHealth({ busy: 10, latency: 84, queue: 1 }, 2, false).level, "");
+  assert.equal(model.driveHealth(null, 90, false).level, "");
+  assert.equal(model.pressureColor(45, "c", "w", "d"), "d");
+  assert.equal(model.pressureColor(12, "c", "w", "d"), "w");
+  assert.equal(model.pressureColor(3, "c", "w", "d"), "c");
+});
+
+test("fix buttons run a known script with plain names as separate arguments", () => {
+  const argv = plain(model.fixCommand({ id: "trim-blocked", fix: "allow-discards", args: ["root"] }));
+  assert.deepEqual(argv.slice(0, 3), ["xdg-terminal-exec", "sh", "-c"]);
+  assert.deepEqual(argv.slice(4), ["omastats-fix", "root"]);
+  assert.match(argv[3], /cryptsetup refresh --allow-discards --persistent "\$1"/);
+  assert.match(argv[3], /confirm \|\| exit 1/);
+  assert.equal(model.fixCommand({ fix: "allow-discards", args: ["root; rm -rf /"] }), null);
+  assert.equal(model.fixCommand({ fix: "allow-discards", args: [] }), null);
+  assert.equal(model.fixCommand({ fix: "rm-everything", args: [] }), null);
+  assert.equal(model.fixCommand({ id: "fat-flush", fix: null, args: [] }), null);
+  assert.deepEqual(plain(model.fixCommand({ fix: "udisks-no-flush", args: ["ABCD-1234", "/dev/sdd1"] })).slice(4),
+    ["omastats-fix", "ABCD-1234", "/dev/sdd1"]);
+  for (const id of ["trim-blocked", "trim-off", "fat-flush"]) assert.ok(model.checkText({ id }).title);
+});
+
+test("checks are listed for one drive or for all", () => {
+  const volumes = [
+    { mount: "/", key: "nvme0n1", checks: [{ id: "trim-blocked" }] },
+    { mount: "/boot", key: "nvme0n1", checks: [] },
+    { mount: "/stick", key: "sdd", checks: [{ id: "fat-flush" }] },
+  ];
+  assert.deepEqual(plain(model.driveChecks(volumes, "all")).map(e => e.check.id), ["trim-blocked", "fat-flush"]);
+  assert.deepEqual(plain(model.driveChecks(volumes, "sdd")).map(e => e.volume.mount), ["/stick"]);
+  assert.deepEqual(plain(model.driveChecks(volumes, "sda")), []);
+});

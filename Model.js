@@ -861,6 +861,166 @@ function volumeName(mount) {
   return parts[parts.length - 1] || m
 }
 
+// ------------------------------------------------------------- disk groups
+
+var VOLUME_KINDS = [
+  { kind: "internal", title: "Internal" },
+  { kind: "external", title: "External" },
+  { kind: "network", title: "Network" }
+]
+
+// Volumes in the order internal, external, network, as
+// [{kind, title, items: [{volume, index}]}]; empty groups are left out.
+// Snapshots from an older sampler carry no kind and count as internal.
+function volumeGroups(volumes) {
+  var list = Array.isArray(volumes) ? volumes : []
+  var out = []
+  for (var g = 0; g < VOLUME_KINDS.length; g++) {
+    var items = []
+    for (var i = 0; i < list.length; i++) {
+      var kind = list[i] && list[i].kind ? String(list[i].kind) : "internal"
+      if (kind === VOLUME_KINDS[g].kind) items.push({ volume: list[i], index: i })
+    }
+    if (items.length) out.push({ kind: VOLUME_KINDS[g].kind, title: VOLUME_KINDS[g].title, items: items })
+  }
+  return out
+}
+
+// What a click on a volume selects: its drive, or for a network mount the
+// share itself.
+function volumeKey(volume) {
+  if (!volume) return ""
+  return String(volume.key || volume.disk || volume.device || "")
+}
+
+// How a drive is coping right now, from its latest load and the system's
+// I/O pressure: {level: "" | "warn" | "danger", text}. A drive that is busy
+// nearly all the time while every task waits on I/O is what freezes a desktop.
+function driveHealth(load, pressureFull, rotational) {
+  if (!load) return { level: "", text: "" }
+  var busy = Number(load.busy) || 0
+  var latency = load.latency === null || load.latency === undefined ? NaN : Number(load.latency)
+  var full = Number(pressureFull) || 0
+  if (busy >= 90 && full >= 20)
+    return { level: "danger", text: "Stalling the system: busy " + Math.round(busy) + "% of the time while every task waits on I/O" }
+  if (isFinite(latency) && busy >= 50 && latency >= (rotational ? 100 : 20))
+    return { level: "warn", text: "Slow to answer: " + latencyText(latency) + " per request" }
+  return { level: "", text: "" }
+}
+
+function latencyText(ms) {
+  var v = Number(ms)
+  if (!isFinite(v)) return "—"
+  if (v < 1) return (Math.round(v * 100) / 100) + " ms"
+  if (v < 10) return (Math.round(v * 10) / 10) + " ms"
+  return Math.round(v) + " ms"
+}
+
+// ------------------------------------------------------------- disk checks
+
+// Wording for each problem the sampler reports on a volume. The sampler
+// sends facts only; what it means and how to fix it is said here.
+function checkText(check) {
+  var c = check || {}
+  switch (String(c.id || "")) {
+    case "trim-blocked":
+      return {
+        title: "TRIM never reaches this drive",
+        detail: "The encrypted volume " + (c.layer || "") + " was unlocked without allowing discards, so fstrim reports success "
+          + "but the SSD is never told which blocks are free. It slows down as it fills and wears faster."
+          + (c.fix ? "" : " Unlock it with discards allowed (allow-discards in crypttab, or rd.luks.options=discard)."),
+        fixLabel: "Allow TRIM"
+      }
+    case "trim-off":
+      return {
+        title: "Free space is never trimmed",
+        detail: "This SSD is mounted without discard and the weekly fstrim timer is off, so the drive is never told which blocks are free.",
+        fixLabel: "Turn on weekly TRIM"
+      }
+    case "fat-flush":
+      var flags = Array.isArray(c.flags) ? c.flags.join(", ") : "flush"
+      return {
+        title: "Every file written waits for the drive",
+        detail: "Mounted with " + flags + ": closing each written file waits for the drive, about a tenth of a second on a USB stick, "
+          + "so copying many small files crawls."
+          + (c.fix ? " The fix mounts it without that option from now on; eject it before unplugging."
+                   : " Mount it without " + flags + " to fix it."),
+        fixLabel: "Mount without flush"
+      }
+  }
+  return { title: String(c.id || "Check"), detail: "", fixLabel: "Fix" }
+}
+
+// Shell scripts behind each Fix button. Each runs in a terminal, says what it
+// will change, asks before changing it, and gets its names as positional
+// arguments, never spliced into the script.
+var FIX_SCRIPTS = {
+  "allow-discards": {
+    args: 1,
+    body: 'echo "Let TRIM pass through the encrypted volume $1 to the SSD."\n'
+      + 'echo "This runs: sudo cryptsetup refresh --allow-discards --persistent $1"\n'
+      + 'echo "The setting is stored in the LUKS header, so it lasts across reboots."\n'
+      + 'confirm || exit 1\n'
+      + 'sudo cryptsetup refresh --allow-discards --persistent "$1" || exit 1\n'
+      + 'echo "Trimming free space now:"\n'
+      + 'sudo fstrim -av\n'
+  },
+  "enable-fstrim": {
+    args: 0,
+    body: 'echo "Turn on the weekly TRIM of every mounted SSD."\n'
+      + 'echo "This runs: sudo systemctl enable --now fstrim.timer"\n'
+      + 'confirm || exit 1\n'
+      + 'sudo systemctl enable --now fstrim.timer\n'
+  },
+  "udisks-no-flush": {
+    args: 2,
+    body: 'conf=/etc/udisks2/mount_options.conf\n'
+      + 'echo "Mount the FAT drive $2 without flush from now on, so small writes are fast."\n'
+      + 'echo "This adds a section for it to $conf, then unmounts and mounts it again."\n'
+      + 'echo "Let any copy to it finish first. Afterwards, always eject it before unplugging."\n'
+      + 'confirm || exit 1\n'
+      + 'if ! grep -qsF "[/dev/disk/by-uuid/$1]" "$conf"; then\n'
+      + '  printf \'\\n# Added by OmaStats: mount this FAT drive without flush.\\n[/dev/disk/by-uuid/%s]\\nvfat_defaults=uid=$UID,gid=$GID,shortname=mixed,utf8=1,showexec\\n\' "$1" | sudo tee -a "$conf" >/dev/null || exit 1\n'
+      + 'fi\n'
+      + 'udisksctl unmount -b "$2" && udisksctl mount -b "$2"\n'
+  }
+}
+
+var FIX_PRELUDE = 'confirm() { printf "Continue? [y/N] "; read -r answer; [ "$answer" = y ] || [ "$answer" = Y ]; }\n'
+var FIX_EPILOGUE = 'status=$?\necho\nif [ "$status" -eq 0 ]; then echo "Done."; else echo "Nothing changed, or it failed (status $status)."; fi\n'
+  + 'printf "Press Enter to close. "; read -r _\n'
+
+function fixArgOk(value) {
+  var v = String(value === undefined || value === null ? "" : value)
+  return v.length > 0 && v.length <= 128 && /^[A-Za-z0-9._:\/-]+$/.test(v) && v.indexOf("..") === -1
+}
+
+// The command a Fix button runs, as argv, or null when the check has no fix
+// or its arguments are not plain names.
+function fixCommand(check) {
+  var c = check || {}
+  var spec = FIX_SCRIPTS[String(c.fix || "")]
+  if (!spec) return null
+  var args = Array.isArray(c.args) ? c.args : []
+  if (args.length !== spec.args) return null
+  for (var i = 0; i < args.length; i++) if (!fixArgOk(args[i])) return null
+  var script = FIX_PRELUDE + "(\n" + spec.body + ")\n" + FIX_EPILOGUE
+  return ["xdg-terminal-exec", "sh", "-c", script, "omastats-fix"].concat(args.map(String))
+}
+
+// Checks on the volumes of one drive (by volumeKey), or on every volume for
+// "all", as [{check, volume}].
+function driveChecks(volumes, key) {
+  var list = Array.isArray(volumes) ? volumes : []
+  var out = []
+  for (var i = 0; i < list.length; i++) {
+    if (key && key !== "all" && volumeKey(list[i]) !== key) continue
+    var checks = Array.isArray(list[i].checks) ? list[i].checks : []
+    for (var j = 0; j < checks.length; j++) out.push({ check: checks[j], volume: list[i] })
+  }
+  return out
+}
+
 function shortGpuName(name) {
   var raw = String(name || "GPU")
   // Keep the manufacturer so cards remain distinct in multi-GPU views. Drop

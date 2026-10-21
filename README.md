@@ -20,7 +20,7 @@ OmaStats is an independent project and is not affiliated with Bjango.
 | CPU     | glyph · user/system history · %     | User/system history, package power, per-core rings, load, uptime, top processes |
 | GPU     | one readout per GPU · history · %   | Its own tab, with aligned load and VRAM histories when reported, and the processes using each card |
 | Memory  | glyph · used history · %            | Swap, memory and memory pressure rings, breakdown, processes          |
-| Disks   | per disk: read/write history and rates, space used | Volumes (click to open in Files), activity for all disks or one, processes |
+| Disks   | per disk: read/write history and rates, space used | Internal, external and network volumes; click one for its drive's activity, latency, queue and processes; I/O pressure; problems that slow a drive down, each with a Fix button |
 | Network | glyph · up/down history · rates     | Upload/download, interfaces, public and local IPs, traffic per process |
 | Sensors | any temperatures and fans you pick  | CPU/GPU/fan rings, every hwmon temperature and fan                    |
 | Battery | glyph by level · %                  | Charge and health rings, charge history, power, cycles, peripherals   |
@@ -59,6 +59,33 @@ waiting for memory (reclaim, swap-in, decompression), from
 `/proc/pressure/memory`; the ring's caption is the share in which every task
 was. Used memory alone cannot say whether a machine is short of it; stalls can.
 
+The Disks page groups volumes as internal, external (USB, removable, or behind
+a port the firmware marks external, such as Thunderbolt) and network (NFS, SMB,
+SSHFS, rclone and other remote filesystems). A network share that stops
+answering is skipped instead of holding up the sampler. Clicking a volume
+shows its drive: transfer rates and history, average latency per request,
+queue length and busy time, and the processes with files open on it, found
+through the mount of each open file in `/proc/<pid>/fdinfo` (your own
+processes; a short-lived process between samples can be missed). A network
+share has no transfer counters of its own, so it shows its processes only.
+I/O pressure (`/proc/pressure/io`) is for the whole system: "I/O waits" is the
+share of time some task waited on storage, "All stalled" the share in which
+every task did, which is what a frozen desktop feels like. A drive that is busy
+nearly all the time while that is high gets a red mark.
+
+The Disks page also checks for setups that make a drive slow, and offers a fix
+for each:
+
+| Problem | Found by | Fix |
+|---------|----------|-----|
+| TRIM never reaches an SSD under an encrypted volume | the dm-crypt device accepts no discards while the drive under it does | `cryptsetup refresh --allow-discards --persistent` (LUKS2) |
+| Free space is never trimmed | an SSD mounted without `discard` while `fstrim.timer` is off | `systemctl enable --now fstrim.timer` |
+| Every file written to a FAT drive waits for it | a FAT volume mounted with `flush`, `sync` or `dirsync` | for a UDisks mount, a section in `/etc/udisks2/mount_options.conf` that mounts it without them, then a remount |
+
+A Fix button opens your terminal (`xdg-terminal-exec`), which shows what will
+change and each command, asks before running it, and asks for your password
+through `sudo`. OmaStats itself never runs anything as root.
+
 ## Install
 
 ```bash
@@ -78,7 +105,10 @@ That disables the plugin and deletes its directory. By hand:
 `omarchy plugin disable crmne.omastats`, then remove
 `~/.config/omarchy/plugins/crmne.omastats/`. Nothing is written outside that
 directory except this widget's own entry in `~/.config/omarchy/shell.json`,
-which `omarchy plugin disable` removes.
+which `omarchy plugin disable` removes. The Disks page's Fix buttons change
+system settings (a LUKS header flag, `fstrim.timer`,
+`/etc/udisks2/mount_options.conf`), and only after you confirm in a terminal;
+removing OmaStats leaves those changes in place.
 
 ## What it needs
 
@@ -109,7 +139,10 @@ fdinfo), `ip` and `iw` (addresses, Wi-Fi signal),
 `ss` from iproute2 (per-process network traffic), `zfs` and `zpool` (a ZFS
 pool's space and the drive behind its first data vdev, shown as one volume at
 its shortest mount path; without them the space is that dataset's), `curl` (public IP lookup),
-`wl-copy` (copy an address), `xdg-open` (open a volume in your file manager).
+`wl-copy` (copy an address), `xdg-open` (open a volume in your file manager),
+`systemctl` (whether `fstrim.timer` is on), `xdg-terminal-exec` (run a disk
+fix in a terminal, which may use `sudo`, `cryptsetup`, `udisksctl` and
+`fstrim`).
 
 Nothing runs as root, and no data leaves the machine except the optional
 public-IP lookup, which you can switch off in Settings. That lookup tries
@@ -177,7 +210,7 @@ Setup → Plugins:
 | `graphWidth`              | `36`                                      | Width of each mini graph in the bar                       |
 | `barLabels`               | `text`                                    | `text` stacks the module's letters vertically (across a vertical bar), `inline` writes the short name horizontally on one line, `icon` uses glyphs |
 | `barDisks`                | *(follows `disksSource`)*                 | Disk readouts as `disk:show`, e.g. `all:speed,nvme-Samsung_SSD_970_EVO_Plus_1TB_S4EWNF0M921645X:both`; `show` is `speed`, `used` or `both`, `none` hides them |
-| `disksSource`             | `all`                                     | Disks page activity: `all` or a disk's by-id name         |
+| `disksSource`             | `all`                                     | Disks page activity when the panel opens: `all` or a disk's by-id name |
 | `barSensors`              | `cpu`                                     | Sensor readouts: `cpu`, `gpu`, or hwmon ids like `nct6687/fan1` or `nvme@0000:02:00.0/temp1` |
 | `barGpus`                 | `all`                                     | Which GPUs get a readout: `all`, `none`, or PCI addresses like `0000:01:00.0` (pick them on the Settings page) |
 | `showGpuMemory`           | `false`                                   | Show a VRAM readout, in the GPU readout's look, beside each selected GPU when available |
@@ -212,8 +245,9 @@ Several instances are allowed, so modules can be spread across the bar:
 - In the panel: `h`/`l` or `←`/`→` switch tabs, `1`–`7` jump to a tab, `s` opens
   Settings, `/` searches processes, `j`/`k` scroll, `Tab` moves to the neighbouring
   bar panel, `Esc` closes, `r` refreshes.
-- Addresses on the Network page copy to the clipboard when clicked. Volumes on
-  the Disks page open in the file manager.
+- Addresses on the Network page copy to the clipboard when clicked. Clicking a
+  volume on the Disks page shows its drive, and clicking it again shows all
+  disks; the folder button beside it opens it in the file manager.
 
 The sampler reads cheap counters at the chosen interval and everything that
 walks many files (processes, sensors, battery, socket mapping) at most once a

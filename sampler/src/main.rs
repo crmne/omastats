@@ -8,7 +8,8 @@
 //! Control lines on stdin:
 //!     detail 0|1|2    0 = none, 1 = top processes, 2 = every process
 //!     focus <page>    page the panel shows; "network" adds per-process
-//!                     traffic and "gpu" what each process uses of every card
+//!                     traffic, "gpu" what each process uses of every card,
+//!                     and "disks" the processes with files on each drive
 //!     interval <sec>  change the sampling interval (0.1 – 30)
 //!     pubip           refresh the public IP address in the background
 //!     quit            exit
@@ -176,7 +177,7 @@ fn main() {
     let _ = disks.sample(1.0, util::now_secs());
     let _ = net.sample(1.0, util::now_secs(), detail_flag > 0);
     if detail_flag > 0 {
-        let _ = procs.sample(1.0, detail_flag >= 2);
+        let _ = procs.sample(1.0, detail_flag >= 2, None);
     }
     std::thread::sleep(Duration::from_secs_f64(if once {
         0.5
@@ -225,7 +226,7 @@ fn main() {
         let cold_gpu = want_gpu && !gpu_primed;
         if cold_procs || cold_network || cold_gpu {
             if cold_procs {
-                let _ = procs.sample(1.0, false);
+                let _ = procs.sample(1.0, false, None);
                 last_procs = Some(Instant::now());
             }
             if cold_network {
@@ -258,7 +259,9 @@ fn main() {
                 let since = last_procs.map_or(elapsed, |t| {
                     read_at.duration_since(t).as_secs_f64().max(0.05)
                 });
-                procs_cache = procs.sample(since, detail >= 2);
+                // The Disks page lists the processes on each drive.
+                let drives = (focus == "disks").then(|| disks.mount_keys());
+                procs_cache = procs.sample(since, detail >= 2, drives);
                 last_procs = Some(read_at);
             } else {
                 procs.reset();

@@ -6,7 +6,8 @@ sysfs directly (no psutil) so the only dependency is a Python 3 interpreter.
 
 Control lines on stdin:
     detail 0|1|2    0 = none, 1 = top processes, 2 = every process
-    focus <page>    page the panel shows; "network" adds per-process traffic
+    focus <page>    page the panel shows; "network" adds per-process traffic,
+                    "disks" the processes with files on each drive
     interval <sec>  change the sampling interval (0.1 - 30)
     pubip           refresh the public IP address in the background
 
@@ -31,9 +32,21 @@ CLK_TCK = os.sysconf("SC_CLK_TCK")
 PAGE_SIZE = os.sysconf("SC_PAGE_SIZE")
 REAL_FS = {
     "ext2", "ext3", "ext4", "xfs", "btrfs", "f2fs", "vfat", "exfat", "ntfs",
-    "ntfs3", "fuseblk", "zfs", "jfs", "reiserfs", "nfs", "nfs4", "cifs",
-    "smb3", "apfs", "hfsplus", "bcachefs",
+    "ntfs3", "fuseblk", "zfs", "jfs", "reiserfs", "apfs", "hfsplus", "bcachefs",
+    "udf", "iso9660", "msdos", "erofs", "squashfs",
 }
+# Filesystems served over the network. Their source is host:/path,
+# //host/share or a remote name, never a block device.
+NETWORK_FS = {
+    "nfs", "nfs4", "cifs", "smb3", "smbfs", "ceph", "glusterfs", "9p", "fuse.sshfs",
+    "fuse.rclone", "davfs",
+}
+TRIM_FS = {"ext4", "xfs", "btrfs", "f2fs", "vfat", "exfat", "ntfs3", "bcachefs", "jfs"}
+# How long a network filesystem may take to report its space before it is
+# treated as unreachable. A hung NFS server blocks statvfs indefinitely.
+NETWORK_STATVFS_TIMEOUT = 0.8
+# Open files read per process when tying its I/O to drives.
+DRIVE_FD_LIMIT = 256
 CPU_TEMP_PREFERENCE = ("k10temp", "zenpower", "coretemp", "cpu_thermal", "soc_thermal", "acpitz")
 GPU_TEMP_HWMON = ("amdgpu", "nouveau", "i915", "xe", "radeon")
 PROC_LIMIT = 6
@@ -996,10 +1009,187 @@ def scan_disk_ids() -> dict[str, str]:
     return pick_disk_ids(links)
 
 
+def unescape_mount(raw: str) -> str:
+    """Undo the octal escapes mountinfo uses for space, tab, newline and backslash."""
+    return re.sub(rb"\\([0-3][0-7]{2})", lambda m: bytes([int(m.group(1), 8)]), raw.encode()).decode("utf-8", "replace")
+
+
+def parse_mountinfo(raw: str) -> list[dict]:
+    mounts = []
+    for line in raw.splitlines():
+        head, sep, tail = line.partition(" - ")
+        if not sep:
+            continue
+        head_parts = head.split(" ")
+        tail_parts = tail.split(" ")
+        if len(head_parts) < 6 or len(tail_parts) < 2 or not head_parts[0].isdigit():
+            continue
+        options = [o for o in head_parts[5].split(",") + (tail_parts[2] if len(tail_parts) > 2 else "").split(",") if o]
+        mounts.append({
+            "id": int(head_parts[0]),
+            "mount": unescape_mount(head_parts[4]),
+            "fstype": tail_parts[0],
+            "source": unescape_mount(tail_parts[1]),
+            "options": options,
+        })
+    return mounts
+
+
+def is_external(disk: str) -> bool:
+    """Whether a disk sits outside the machine: on USB, marked removable, or
+    behind a PCIe port the firmware marks external (Thunderbolt and USB4)."""
+    if read_int(f"/sys/block/{disk}/removable", 0) == 1:
+        return True
+    real = os.path.realpath(f"/sys/block/{disk}")
+    if "/usb" in real:
+        return True
+    while real.startswith("/sys/devices/"):
+        if read_text(f"{real}/removable") == "removable":
+            return True
+        real = os.path.dirname(real)
+    return False
+
+
+_STUCK_MOUNTS: set[str] = set()
+
+
+def statvfs_bounded(path: str):
+    """statvfs for a network mount on a helper thread, so a dead server costs
+    one stuck thread instead of the sampler."""
+    if path in _STUCK_MOUNTS:
+        return None
+    result: list = []
+
+    def probe() -> None:
+        try:
+            result.append(os.statvfs(path))
+        except OSError:
+            result.append(None)
+        _STUCK_MOUNTS.discard(path)
+
+    _STUCK_MOUNTS.add(path)
+    thread = threading.Thread(target=probe, daemon=True)
+    thread.start()
+    thread.join(NETWORK_STATVFS_TIMEOUT)
+    return result[0] if result else None
+
+
+def dm_chain(device: str) -> list[tuple[str, str]]:
+    """The device-mapper devices a volume sits on, top first, with the device
+    each one passes requests to."""
+    name = os.path.basename(os.path.realpath(device))
+    chain = []
+    for _ in range(4):
+        if not name.startswith("dm-"):
+            break
+        lower = next(iter(list_dir(f"/sys/block/{name}/slaves")), None)
+        if not lower:
+            break
+        chain.append((name, lower))
+        name = lower
+    return chain
+
+
+def discard_max(name: str) -> int | None:
+    value = read_int(f"/sys/block/{name}/queue/discard_max_bytes")
+    if value is None:
+        value = read_int(f"/sys/class/block/{name}/../queue/discard_max_bytes")
+    return value
+
+
+def device_uuid(device: str) -> str | None:
+    real = os.path.realpath(device)
+    for uuid in list_dir("/dev/disk/by-uuid"):
+        if os.path.realpath(f"/dev/disk/by-uuid/{uuid}") == real:
+            return uuid
+    return None
+
+
+def plain_name(value: str) -> bool:
+    """A name that is safe to hand to a fix as one argument."""
+    return bool(value) and len(value) <= 128 and ".." not in value and re.fullmatch(r"[A-Za-z0-9._:/-]+", value) is not None
+
+
+def volume_checks(volume: dict, options: list[str], trim_timer: bool | None) -> list[dict]:
+    """Problems the volume has that slow it down, each with what a fix needs."""
+    checks: list[dict] = []
+    if volume["kind"] == "network":
+        return checks
+    trim_blocked = False
+    for dm, lower in dm_chain(volume["device"]):
+        top, below = discard_max(dm), discard_max(lower)
+        if top is None or below is None:
+            continue
+        if top == 0 and below > 0:
+            trim_blocked = True
+            name = read_text(f"/sys/block/{dm}/dm/name")
+            luks2 = read_text(f"/sys/block/{dm}/dm/uuid").startswith("CRYPT-LUKS2-")
+            args = [name] if luks2 and plain_name(name) else []
+            checks.append({
+                "id": "trim-blocked",
+                "layer": bounded_text(name),
+                "fix": "allow-discards" if args else None,
+                "args": args,
+            })
+            break
+    ssd = not volume["rotational"] and bool(volume["disk"])
+    discard = any(o == "discard" or o.startswith("discard=") for o in options)
+    if ssd and not trim_blocked and not discard and trim_timer is False and volume["fstype"] in TRIM_FS:
+        checks.append({"id": "trim-off", "fix": "enable-fstrim", "args": []})
+    if volume["fstype"] in ("vfat", "msdos"):
+        slow = [flag for flag in ("flush", "sync", "dirsync") if flag in options]
+        if slow:
+            udisks = volume["mount"].startswith(("/run/media/", "/media/"))
+            uuid = device_uuid(volume["device"])
+            fixable = udisks and uuid is not None and plain_name(uuid) and plain_name(volume["device"])
+            checks.append({
+                "id": "fat-flush",
+                "flags": slow,
+                "fix": "udisks-no-flush" if fixable else None,
+                "args": [uuid, volume["device"]] if fixable else [],
+            })
+    return checks
+
+
+def parse_diskstats(parts: list[str]) -> tuple[int, int, int, int, int, int]:
+    """(read bytes, write bytes, requests, request ms, busy ms, queued ms).
+
+    Fields from 14 on (discards, then flushes) exist on kernels since 4.18
+    and 5.5.
+    """
+    def field(i: int) -> int:
+        try:
+            return int(parts[i])
+        except (IndexError, ValueError):
+            return 0
+    return (
+        field(5) * 512,
+        field(9) * 512,
+        field(3) + field(7) + field(14) + field(18),
+        field(6) + field(10) + field(17) + field(19),
+        field(12),
+        field(13),
+    )
+
+
+def disk_load(prev: tuple, now: tuple, elapsed: float) -> dict:
+    """Average ms per request, average queue length, and percent busy."""
+    ios = max(0, now[2] - prev[2])
+    ticks = max(0, now[3] - prev[3])
+    window = max(1.0, elapsed * 1000)
+    return {
+        "latency": round(ticks / ios, 2) if ios else None,
+        "queue": round(max(0, now[5] - prev[5]) / window, 2),
+        "busy": round(min(100.0, max(0, now[4] - prev[4]) / window * 100), 1),
+    }
+
+
 class DiskSampler:
     def __init__(self) -> None:
-        self.prev: dict[str, tuple[int, int]] = {}
+        self.prev: dict[str, tuple[int, int, int, int, int, int]] = {}
         self.ids: dict[str, str] = {}
+        # Mount id -> the key of the drive it lives on.
+        self.mount_keys: dict[int, str] = {}
         self.volumes_cache: list[dict] = []
         self.volumes_stamp = 0.0
         self.drive_temps: dict[str, str] = {}
@@ -1066,51 +1256,82 @@ class DiskSampler:
 
     def _volumes(self) -> list[dict]:
         volumes: dict[str, dict] = {}
-        mounts = [line.split() for line in read_text("/proc/self/mounts").splitlines()]
-        mounts = [parts for parts in mounts if len(parts) >= 3]
+        options: dict[str, list[str]] = {}
+        mount_keys: dict[int, str] = {}
+        mounts = parse_mountinfo(read_text("/proc/self/mountinfo"))
         zfs_space: dict[str, tuple[int, int]] = {}
         zfs_leaves: dict[str, str] = {}
-        if any(zfs_pool(parts[2], parts[0]) for parts in mounts):
+        if any(zfs_pool(m["fstype"], m["source"]) for m in mounts):
             zfs_space = parse_zfs_space(run(["zfs", "list", "-Hp", "-d", "0", "-o", "name,used,avail"]))
             zfs_leaves = parse_zpool_leaves(run(["zpool", "list", "-HPv", "-o", "name"]))
-        for parts in mounts:
-            device = bounded_text(parts[0], 4096)
-            mount = bounded_text(parts[1].replace("\\040", " "), 4096)
-            fstype = bounded_text(parts[2], 64)
+        trim_timer = None
+        if any(m["fstype"] in TRIM_FS for m in mounts):
+            state = run(["systemctl", "is-enabled", "fstrim.timer"]).strip()
+            trim_timer = (state == "enabled") if state else None
+        disk_info: dict[str, tuple[str, bool, bool, bool]] = {}
+        for entry in mounts:
+            device = bounded_text(entry["source"], 4096)
+            mount = bounded_text(entry["mount"], 4096)
+            fstype = bounded_text(entry["fstype"], 64)
+            network = fstype in NETWORK_FS
             # Every dataset in a pool shares the pool's space, so the pool is the
             # volume, at its shortest mount path.
             pool = zfs_pool(fstype, device)
-            if fstype not in REAL_FS or (pool is None and not device.startswith("/")):
+            if fstype not in REAL_FS and not network:
+                continue
+            if not device or (pool is None and not network and not device.startswith("/")):
                 continue
             if mount.startswith(("/proc", "/sys", "/dev", "/run/user", "/var/lib/docker", "/snap")):
                 continue
-            try:
-                stat = os.statvfs(mount)
-            except OSError:
-                continue
-            size = stat.f_blocks * stat.f_frsize
-            if size < 64 * 1024 * 1024:
-                continue
-            avail = stat.f_bavail * stat.f_frsize
-            used = size - stat.f_bfree * stat.f_frsize
             device = pool or device
+            if network:
+                disk = ""
+            elif pool is None:
+                disk = self._parent_disk(device)
+            else:
+                disk = self._parent_disk(zfs_leaves[pool]) if pool in zfs_leaves else ""
+            key = disk or device
+            # Bind mounts and subvolumes count toward their drive's processes
+            # even though only the shortest mount is listed.
+            mount_keys[entry["id"]] = key
             existing = volumes.get(device)
             if existing and len(existing["mount"]) <= len(mount):
                 continue
             if existing is None and len(volumes) >= 256:
                 continue
+            if network:
+                stat = statvfs_bounded(mount)
+                if stat is None:
+                    continue
+            else:
+                try:
+                    stat = os.statvfs(mount)
+                except OSError:
+                    continue
+            size = stat.f_blocks * stat.f_frsize
+            if size < 64 * 1024 * 1024:
+                continue
+            avail = stat.f_bavail * stat.f_frsize
+            used = size - stat.f_bfree * stat.f_frsize
             if pool in zfs_space:
                 used, avail = zfs_space[pool]
                 size = used + avail
-            if pool is None:
-                disk = self._parent_disk(device)
-            else:
-                disk = self._parent_disk(zfs_leaves[pool]) if pool in zfs_leaves else ""
-            model = bounded_text(
-                read_text(f"/sys/block/{disk}/device/model")
-                or read_text(f"/sys/block/{disk}/device/name")
-            )
-            rotational = read_int(f"/sys/block/{disk}/queue/rotational", 0) == 1
+            if disk not in disk_info:
+                if disk:
+                    model = bounded_text(
+                        read_text(f"/sys/block/{disk}/device/model")
+                        or read_text(f"/sys/block/{disk}/device/name")
+                    )
+                    disk_info[disk] = (
+                        re.sub(r"\s+", " ", model).strip(),
+                        read_int(f"/sys/block/{disk}/queue/rotational", 0) == 1,
+                        read_int(f"/sys/block/{disk}/removable", 0) == 1,
+                        is_external(disk),
+                    )
+                else:
+                    disk_info[disk] = ("", False, False, False)
+            model, rotational, removable, external = disk_info[disk]
+            options[device] = entry["options"]
             volumes[device] = {
                 "mount": mount,
                 "device": device,
@@ -1119,10 +1340,15 @@ class DiskSampler:
                 "used": used,
                 "avail": avail,
                 "disk": disk,
-                "model": re.sub(r"\s+", " ", model).strip(),
+                "key": key,
+                "kind": "network" if network else ("external" if external else "internal"),
+                "model": model,
                 "rotational": rotational,
-                "removable": read_int(f"/sys/block/{disk}/removable", 0) == 1,
+                "removable": removable,
             }
+        for volume in volumes.values():
+            volume["checks"] = volume_checks(volume, options.get(volume["device"], []), trim_timer)
+        self.mount_keys = mount_keys
         result = sorted(volumes.values(), key=lambda v: (v["mount"] != "/", v["mount"]))
         return result
 
@@ -1130,7 +1356,7 @@ class DiskSampler:
         if now - self.volumes_stamp > 10:
             self.volumes_cache = self._volumes()
             self.volumes_stamp = now
-        current: dict[str, tuple[int, int]] = {}
+        current: dict[str, tuple[int, int, int, int, int, int]] = {}
         for line in read_text("/proc/diskstats").splitlines():
             parts = line.split()
             if len(parts) < 14:
@@ -1140,24 +1366,26 @@ class DiskSampler:
                 continue
             if (read_int(f"/sys/block/{name}/size", 0) or 0) <= 0:
                 continue
-            current[name] = (int(parts[5]) * 512, int(parts[9]) * 512)
+            current[name] = parse_diskstats(parts)
         # Disks come and go with hotplug; look their identities up again then.
         if current.keys() != self.prev.keys():
             self.ids = scan_disk_ids()
         per_disk: dict[str, dict] = {}
         total_read = 0.0
         total_write = 0.0
-        for name, (read_bytes, write_bytes) in current.items():
+        for name, counters in current.items():
             prev = self.prev.get(name)
-            read_rate = rate(read_bytes, prev[0] if prev else None, elapsed)
-            write_rate = rate(write_bytes, prev[1] if prev else None, elapsed)
+            read_rate = rate(counters[0], prev[0] if prev else None, elapsed)
+            write_rate = rate(counters[1], prev[1] if prev else None, elapsed)
             temp_path = self.drive_temps.get(name)
             temp = read_int(temp_path) if temp_path else None
+            load = disk_load(prev, counters, elapsed) if prev else {"latency": None, "queue": None, "busy": None}
             per_disk[name] = {
                 "id": self.ids.get(name, name),
                 "read": read_rate,
                 "write": write_rate,
                 "temp": round(temp / 1000, 1) if temp else None,
+                **load,
             }
             total_read += read_rate
             total_write += write_rate
@@ -1168,11 +1396,14 @@ class DiskSampler:
             activity = per_disk.get(volume["disk"], {})
             entry["temp"] = activity.get("temp")
             volumes.append(entry)
+        pressure_some, pressure_full = read_pressure("io")
         return {
             "volumes": volumes,
             "read": total_read,
             "write": total_write,
             "perDisk": per_disk,
+            "pressureSome": pressure_some,
+            "pressureFull": pressure_full,
         }
 
 
@@ -1714,7 +1945,26 @@ class ProcessSampler:
             ]
         return result
 
-    def sample(self, elapsed: float, full: bool = False) -> dict:
+    @staticmethod
+    def _open_mounts(pid: int) -> set[int]:
+        """Mount ids of the files a process has open, read from fdinfo so the
+        files themselves are never touched: stat on a file on a dead network
+        mount would block."""
+        mounts: set[int] = set()
+        base = f"/proc/{pid}/fdinfo"
+        try:
+            names = os.listdir(base)[:DRIVE_FD_LIMIT]
+        except OSError:
+            return mounts
+        for fd in names:
+            match = re.search(r"^mnt_id:\s*(\d+)", read_text(f"{base}/{fd}"), re.M)
+            if match:
+                mounts.add(int(match.group(1)))
+        return mounts
+
+    def sample(self, elapsed: float, full: bool = False, drives: dict[int, str] | None = None) -> dict:
+        """Top processes by disk I/O and, given each mount's drive, the top
+        processes with files open on each drive under "ioByDrive"."""
         current: dict[int, tuple[int, int, int, int]] = {}
         by_name: dict[str, dict] = {}
         names: dict[int, str] = {}
@@ -1768,7 +2018,9 @@ class ProcessSampler:
             names[pid] = name
             agg = by_name.get(name)
             if agg is None:
-                agg = by_name[name] = {"name": name, "pid": pid, "cpu": 0.0, "mem": 0, "read": 0.0, "write": 0.0, "count": 0}
+                agg = by_name[name] = {"name": name, "pid": pid, "cpu": 0.0, "mem": 0, "read": 0.0, "write": 0.0, "count": 0, "drives": set()}
+            if drives is not None and io_read + io_write > 0:
+                agg["drives"].update(drives[m] for m in self._open_mounts(pid) if m in drives)
             agg["cpu"] += max(0.0, cpu)
             agg["mem"] += rss
             agg["read"] += io_read
@@ -1804,6 +2056,19 @@ class ProcessSampler:
                 if g["read"] + g["write"] > 0
             ],
         }
+        if drives is not None:
+            by_drive: dict[str, list[dict]] = {}
+            for g in sorted(groups, key=lambda g: g["read"] + g["write"], reverse=True):
+                if g["read"] + g["write"] <= 0:
+                    break
+                for drive in g["drives"]:
+                    rows = by_drive.setdefault(drive, [])
+                    if len(rows) < PROC_LIMIT:
+                        rows.append({
+                            "name": g["name"], "pid": g["pid"], "count": g["count"],
+                            "cpu": round(g["cpu"], 1), "mem": g["mem"], "read": g["read"], "write": g["write"],
+                        })
+            result["ioByDrive"] = by_drive
         if full:
             result["all"] = [
                 {
@@ -2158,7 +2423,9 @@ def main() -> int:
             if detail:
                 since = elapsed if last_procs is None else max(0.05, now_mono - last_procs)
                 try:
-                    procs_cache = procs.sample(since, detail >= 2)
+                    # The Disks page lists the processes on each drive.
+                    drives = disks.mount_keys if focus == "disks" else None
+                    procs_cache = procs.sample(since, detail >= 2, drives)
                 except Exception as error:  # noqa: BLE001
                     procs_cache = None
                     payload["errors"].append(f"procs: {error}")
