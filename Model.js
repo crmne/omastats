@@ -301,6 +301,13 @@ function stableDiskId(snapshot, value) {
   return name === "" ? String(value || "") : (name === "all" ? "all" : diskId(snapshot, name))
 }
 
+// Colour for a /proc/pressure share (0-100): calm below 10%, a warning
+// from 10% and danger from 40%, when tasks stall most of the time.
+function pressureColor(percent, calm, warn, danger) {
+  var p = Number(percent) || 0
+  return p >= 40 ? danger : (p >= 10 ? warn : calm)
+}
+
 // Saved disk and sensor choices rewritten to the identities the sampler
 // reports, as {key: value} for each setting that changes, or null.
 function stableSettings(settings, snapshot) {

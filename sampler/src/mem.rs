@@ -1,4 +1,4 @@
-use crate::util::{list_dir, read_text};
+use crate::util::{list_dir, read_pressure, read_text};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 
@@ -45,23 +45,7 @@ pub fn sample_memory() -> Value {
         }
     }
 
-    let mut pressure_some = 0.0;
-    let mut pressure_full = 0.0;
-    for line in read_text("/proc/pressure/memory")
-        .unwrap_or_default()
-        .lines()
-    {
-        let mut parts = line.split_whitespace();
-        let kind = parts.next().unwrap_or("");
-        let avg10 = parts
-            .find_map(|p| p.strip_prefix("avg10=").and_then(|v| v.parse::<f64>().ok()))
-            .unwrap_or(0.0);
-        if kind == "some" {
-            pressure_some = avg10;
-        } else if kind == "full" {
-            pressure_full = avg10;
-        }
-    }
+    let (pressure_some, pressure_full) = read_pressure("memory");
 
     json!({
         "total": total,

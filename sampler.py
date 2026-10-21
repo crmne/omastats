@@ -837,6 +837,23 @@ class GpuSampler:
 # -------------------------------------------------------------------------- Memory
 
 
+def parse_pressure(raw: str) -> tuple[float, float]:
+    """Ten-second averages from a /proc/pressure file as (some, full)."""
+    some = full = 0.0
+    for line in raw.splitlines():
+        match = re.match(r"(some|full)\s+avg10=([0-9.]+)", line)
+        if match:
+            if match.group(1) == "some":
+                some = float(match.group(2))
+            else:
+                full = float(match.group(2))
+    return some, full
+
+
+def read_pressure(resource: str) -> tuple[float, float]:
+    return parse_pressure(read_text(f"/proc/pressure/{resource}"))
+
+
 def sample_memory() -> dict:
     info: dict[str, int] = {}
     for line in read_text("/proc/meminfo").splitlines():
@@ -861,15 +878,7 @@ def sample_memory() -> dict:
             if len(fields) >= 3:
                 zram_orig += int(fields[0])
                 zram_compr += int(fields[1])
-    pressure_some = 0.0
-    pressure_full = 0.0
-    for line in read_text("/proc/pressure/memory").splitlines():
-        match = re.match(r"(some|full)\s+avg10=([0-9.]+)", line)
-        if match:
-            if match.group(1) == "some":
-                pressure_some = float(match.group(2))
-            else:
-                pressure_full = float(match.group(2))
+    pressure_some, pressure_full = read_pressure("memory")
     return {
         "total": total,
         "free": free,

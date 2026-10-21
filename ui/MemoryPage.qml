@@ -32,7 +32,11 @@ Column {
   readonly property var procs: snap.procs || null
   readonly property real total: Math.max(1, Model.num(mem.total, 1))
   readonly property real usedPercent: Model.num(mem.used) / total * 100
-  readonly property real pressure: Math.max(Model.num(mem.pressureSome), Model.num(mem.pressureFull))
+  // Share of the last ten seconds that some task, and every task, waited
+  // for memory: reclaim, swap-in, compression. Used memory alone cannot say
+  // whether the machine is short of it; stalls can.
+  readonly property real pressureSome: Model.num(mem.pressureSome)
+  readonly property real pressureFull: Model.num(mem.pressureFull)
   readonly property bool hasCompression: Model.num(mem.compressed) >= 1048576
   readonly property bool hasSwap: Model.num(mem.swapTotal) > 0
   readonly property real swapTotal: Model.num(mem.swapTotal)
@@ -96,7 +100,18 @@ Column {
           valueText: String(Math.round(root.usedPercent))
           unitText: "%"
           labelText: "Memory"
-          subText: root.pressure >= 0.5 ? "pressure " + Math.round(root.pressure) + "%" : ""
+          size: Style.space(86)
+        }
+
+        RingGauge {
+          value: root.pressureSome / 100
+          color: Model.pressureColor(root.pressureSome, root.swapColor, root.warn, root.danger)
+          foreground: root.foreground
+          fontFamily: root.fontFamily
+          valueText: String(Math.round(root.pressureSome))
+          unitText: "%"
+          labelText: "Pressure"
+          subText: root.pressureFull >= 1 ? "all " + Math.round(root.pressureFull) + "%" : "waiting"
           size: Style.space(86)
         }
       }

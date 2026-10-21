@@ -19,7 +19,7 @@ OmaStats is an independent project and is not affiliated with Bjango.
 |---------|-------------------------------------|-----------------------------------------------------------------------|
 | CPU     | glyph · user/system history · %     | User/system history, package power, per-core rings, load, uptime, top processes |
 | GPU     | one readout per GPU · history · %   | Its own tab, with aligned load and VRAM histories when reported, and the processes using each card |
-| Memory  | glyph · used history · %            | Swap and memory rings, breakdown, processes                           |
+| Memory  | glyph · used history · %            | Swap, memory and memory pressure rings, breakdown, processes          |
 | Disks   | per disk: read/write history and rates, space used | Volumes (click to open in Files), activity for all disks or one, processes |
 | Network | glyph · up/down history · rates     | Upload/download, interfaces, public and local IPs, traffic per process |
 | Sensors | any temperatures and fans you pick  | CPU/GPU/fan rings, every hwmon temperature and fan                    |
@@ -53,6 +53,11 @@ reports the package power (PPT), so that reading moves from the Radeon card to
 the CPU, where it belongs. Some Ryzen 7000 and 9000 drivers report it in
 milliwatts instead of microwatts (`sensors` shows "157 mW"); OmaStats corrects
 for that.
+
+Memory pressure is the share of the last ten seconds in which some task was
+waiting for memory (reclaim, swap-in, decompression), from
+`/proc/pressure/memory`; the ring's caption is the share in which every task
+was. Used memory alone cannot say whether a machine is short of it; stalls can.
 
 ## Install
 

@@ -305,6 +305,30 @@ pub fn opt_f64(value: Option<f64>) -> serde_json::Value {
     }
 }
 
+/// Ten-second averages from a /proc/pressure file as (some, full): the share
+/// of time at least one task, and every non-idle task, was stalled on it.
+pub fn parse_pressure(raw: &str) -> (f64, f64) {
+    let mut some = 0.0;
+    let mut full = 0.0;
+    for line in raw.lines() {
+        let mut parts = line.split_whitespace();
+        let kind = parts.next().unwrap_or("");
+        let avg10 = parts
+            .find_map(|p| p.strip_prefix("avg10=").and_then(|v| v.parse::<f64>().ok()))
+            .unwrap_or(0.0);
+        match kind {
+            "some" => some = avg10,
+            "full" => full = avg10,
+            _ => {}
+        }
+    }
+    (some, full)
+}
+
+pub fn read_pressure(resource: &str) -> (f64, f64) {
+    parse_pressure(&read_text(format!("/proc/pressure/{resource}")).unwrap_or_default())
+}
+
 pub fn is_whole_disk(name: &str) -> bool {
     let all_alpha_suffix = |prefix: &str| {
         name.starts_with(prefix)
@@ -357,6 +381,14 @@ mod tests {
             Some("ok".to_string())
         );
         assert_eq!(read_bounded_line(&mut input, 4).unwrap(), None);
+    }
+
+    #[test]
+    fn pressure_reads_both_ten_second_averages() {
+        let raw = "some avg10=96.12 avg60=80.00 avg300=50.00 total=1\n\
+                   full avg10=91.50 avg60=70.00 avg300=40.00 total=1\n";
+        assert_eq!(parse_pressure(raw), (96.12, 91.5));
+        assert_eq!(parse_pressure(""), (0.0, 0.0));
     }
 
     #[test]
