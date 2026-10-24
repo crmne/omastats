@@ -44,6 +44,7 @@ Item {
     font.family: root.fontFamily
     font.pixelSize: root.fittedSize
     font.bold: true
+    renderType: Text.NativeRendering
     text: "W"
   }
 
