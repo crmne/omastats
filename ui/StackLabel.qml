@@ -25,6 +25,11 @@ Item {
     : letterSize
   readonly property real rowHeight: Math.ceil(metrics.tightBoundingRect.height * deviceScale) / deviceScale
   readonly property real rowStep: (Math.ceil(rowHeight * deviceScale) + 1) / deviceScale
+  // Capitals sit below the top of the em box. With the rows packed to the
+  // ink, that leading is empty space above the first letter. Shift the
+  // layout up by it, snapped to a device pixel.
+  readonly property real capLeading: Math.max(0, -metrics.boundingRect.y + metrics.tightBoundingRect.y)
+  readonly property real capShift: Math.round(capLeading * deviceScale) / deviceScale
   property real letterOpacity: 1.0
 
   readonly property int rows: text.length
@@ -40,10 +45,12 @@ Item {
     font.family: root.fontFamily
     font.pixelSize: root.fittedSize
     font.bold: true
+    renderType: Text.NativeRendering
     text: "W"
   }
 
   Text {
+    y: -root.capShift
     width: root.width
     height: root.height
     horizontalAlignment: Text.AlignHCenter
