@@ -108,7 +108,10 @@ test("utilization colors follow displayed percentages and preserve missing sampl
 });
 
 test("disk readouts keep the 1.1 bar until barDisks is set", () => {
-  assert.deepEqual(plain(model.barDisks({})), [{ disk: "all", show: "speed" }]);
+  // A fresh entry shows space used; one styled before 1.8 keeps its readout.
+  assert.deepEqual(plain(model.barDisks({})), [{ disk: "all", show: "used" }]);
+  assert.deepEqual(plain(model.barDisks({ style: "both" })), [{ disk: "all", show: "speed" }]);
+  assert.deepEqual(plain(model.barDisks({ disksStyle: "" })), [{ disk: "all", show: "speed" }]);
   assert.deepEqual(plain(model.barDisks({ disksSource: "sda", disksStyle: "ring-text" })),
     [{ disk: "sda", show: "used" }]);
   assert.deepEqual(plain(model.barDisks({ style: "ring" })), [{ disk: "all", show: "used" }]);
@@ -430,4 +433,26 @@ test("an integrated GPU still stands for GPU when it is the only one", () => {
   assert.deepEqual(plain(model.sensorGpus({ gpus })), gpus);
   assert.equal(model.sensorReading({ gpus }, "gpu", "Celsius").celsius, 44);
   assert.equal(model.fanParts({ percent: 0 }).value, "Off");
+});
+
+test("a fresh bar draws CPU and GPU graphs, a memory ring and disk space", () => {
+  assert.deepEqual(plain(model.parseModules(model.SETTINGS.modules)), ["cpu", "memory", "network", "gpu", "disks"]);
+  const looks = ["cpu", "memory", "network", "gpu", "disks"].map(id => model.moduleStyle({}, id));
+  assert.deepEqual(looks, ["graph", "ring", "both", "graph", "graph"]);
+  // A global style saved before 1.8 still reaches every unsaved module.
+  assert.equal(model.moduleStyle({ style: "ring-text" }, "cpu"), "ring-text");
+  assert.equal(model.moduleStyle({ style: "ring-text", cpuStyle: "graph" }, "cpu"), "graph");
+  assert.equal(model.moduleStyle({ cpuStyle: "" }, "cpu"), "both", "an emptied override follows the global style");
+  const manifest = JSON.parse(fs.readFileSync(path.join(__dirname, "../manifest.json"), "utf8"));
+  for (const key of ["modules", "cpuStyle", "gpuStyle", "memoryStyle", "disksStyle", "barGpus"])
+    assert.equal(manifest.barWidget.defaults[key], model.SETTINGS[key], key);
+});
+
+test("the bar shows discrete GPUs unless told otherwise", () => {
+  const igpu = { id: "0000:11:00.0", integrated: true, vendor: "amd" };
+  const dgpu = { id: "0000:01:00.0", vendor: "nvidia" };
+  assert.deepEqual(plain(model.selectedGpus({ gpus: [igpu, dgpu] }, undefined)), [dgpu]);
+  assert.deepEqual(plain(model.selectedGpus({ gpus: [igpu, dgpu] }, "discrete")), [dgpu]);
+  assert.deepEqual(plain(model.selectedGpus({ gpus: [igpu, dgpu] }, "all")), [igpu, dgpu]);
+  assert.deepEqual(plain(model.selectedGpus({ gpus: [igpu] }, "discrete")), [igpu]);
 });

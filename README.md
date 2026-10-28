@@ -212,16 +212,16 @@ Setup → Plugins:
 
 | Key                       | Default                                   | Meaning                                                   |
 |---------------------------|-------------------------------------------|-----------------------------------------------------------|
-| `modules`                 | `cpu,memory,network`                      | Bar readouts, in order: `cpu gpu memory disks network sensors battery` |
+| `modules`                 | `cpu,memory,network,gpu,disks`            | Bar readouts, in order: `cpu gpu memory disks network sensors battery` |
 | `style`                   | `both`                                    | Default look of a readout: `graph`, `ring`, `text`, `both` (graph and figure), or `ring-text` |
-| `cpuStyle` … `batteryStyle` | *(inherit)*                             | Per-module override of `style`                            |
+| `cpuStyle` … `batteryStyle` | CPU and GPU `graph`, memory `ring`, disks `graph`, others *(inherit)* | Per-module override of `style`. Until either is saved, the defaults shown apply; a bar whose `style` was saved before 1.8 keeps it for every module |
 | `tabs`                    | `cpu,gpu,memory,disks,network,sensors,battery` | Tabs shown in the panel                              |
 | `graphWidth`              | `36`                                      | Width of each mini graph in the bar                       |
 | `barLabels`               | `text`                                    | `text` stacks the module's letters vertically (across a vertical bar), `inline` writes the short name horizontally on one line, `icon` uses glyphs |
-| `barDisks`                | *(follows `disksSource`)*                 | Disk readouts as `disk:show`, e.g. `all:speed,nvme-Samsung_SSD_970_EVO_Plus_1TB_S4EWNF0M921645X:both`; `show` is `speed`, `used` or `both`, `none` hides them |
+| `barDisks`                | *(follows `disksSource`, space used)*     | Disk readouts as `disk:show`, e.g. `all:speed,nvme-Samsung_SSD_970_EVO_Plus_1TB_S4EWNF0M921645X:both`; `show` is `speed`, `used` or `both`, `none` hides them |
 | `disksSource`             | `all`                                     | Disks page activity when the panel opens: `all` or a disk's by-id name |
 | `barSensors`              | `cpu`                                     | Sensor readouts: `cpu`, `gpu`, `gpu:<PCI address>`, `gpufan:<PCI address>`, or hwmon ids like `nct6687/fan1` or `nvme@0000:02:00.0/temp1` |
-| `barGpus`                 | `all`                                     | Which GPUs get a readout: `all`, `none`, or PCI addresses like `0000:01:00.0` (pick them on the Settings page) |
+| `barGpus`                 | `discrete`                                | Which GPUs get a readout: `discrete` (the integrated GPU only when it is the only one), `all`, `none`, or PCI addresses like `0000:01:00.0` (pick them on the Settings page) |
 | `showGpuMemory`           | `false`                                   | Show a VRAM readout, in the GPU readout's look, beside each selected GPU when available |
 | `temperatureUnit`         | `Celsius`                                 | `Celsius` or `Fahrenheit`                                 |
 | `refreshSeconds`          | `1`                                       | Sampling interval: 0.1, 0.2, 0.5, 1, 2, 5 or 10           |

@@ -19,17 +19,18 @@ var PANEL_TABS = ["cpu", "gpu", "memory", "disks", "network", "sensors", "batter
 // Every user-tunable key with its default. Flat keys keep the entry in
 // shell.json readable and editable from Setup → Plugins as well as from the
 // in-panel Settings page. Per-module bar styles live in "<module>Style" and
-// fall back to "style" when empty.
+// fall back to "style" when empty. Their defaults apply only to an entry
+// that has saved neither, so a bar styled before 1.8 keeps its look.
 var SETTINGS = {
-  modules: "cpu,memory,network",
+  modules: "cpu,memory,network,gpu,disks",
   style: "both",
-  cpuStyle: "", gpuStyle: "", memoryStyle: "", disksStyle: "", networkStyle: "", sensorsStyle: "", batteryStyle: "",
+  cpuStyle: "graph", gpuStyle: "graph", memoryStyle: "ring", disksStyle: "graph", networkStyle: "", sensorsStyle: "", batteryStyle: "",
   graphWidth: 36,
   barLabels: "text",
   disksSource: "all",
   barDisks: "",
   barSensors: "cpu",
-  barGpus: "all",
+  barGpus: "discrete",
   showGpuMemory: false,
   temperatureUnit: "Celsius",
   refreshSeconds: 1,
@@ -125,12 +126,23 @@ function gpuId(gpu) {
   return gpu && gpu.id !== undefined && gpu.id !== null ? String(gpu.id) : ""
 }
 
-// The GPUs the bar and the CPU page show: "all" (or nothing set) means every
-// one, otherwise the PCI addresses picked on the Settings page, in that order.
+// The cards the bar shows unless told otherwise: the discrete ones, or the
+// integrated one on a machine with nothing else.
+function discreteGpus(snapshot) {
+  var all = gpuList(snapshot)
+  var out = []
+  for (var i = 0; i < all.length; i++) if (!all[i].integrated) out.push(all[i])
+  return out.length > 0 ? out : all
+}
+
+// The GPUs the bar shows: "discrete" (or nothing set) means discreteGpus,
+// "all" every one, otherwise the PCI addresses picked on the Settings page,
+// in that order.
 function selectedGpus(snapshot, raw) {
   var all = gpuList(snapshot)
   var text = String(raw === undefined || raw === null ? SETTINGS.barGpus : raw).trim()
-  if (!text || text.toLowerCase() === "all") return all
+  if (!text || text.toLowerCase() === "discrete") return discreteGpus(snapshot)
+  if (text.toLowerCase() === "all") return all
   if (text.toLowerCase() === "none") return []
   var ids = parseList(text)
   var out = []
@@ -138,8 +150,8 @@ function selectedGpus(snapshot, raw) {
     for (var j = 0; j < all.length; j++) if (gpuId(all[j]) === ids[i]) out.push(all[j])
   }
   // A shell.json synced from another machine names cards this one lacks;
-  // its own cards stand in until the user picks here.
-  return out.length > 0 ? out : all
+  // its own discrete cards stand in until the user picks here.
+  return out.length > 0 ? out : discreteGpus(snapshot)
 }
 
 // Short bar tag. Several GPUs in the bar would otherwise all read "GPU".
@@ -188,10 +200,7 @@ function finiteValue(v) {
 // machine with nothing else. On a desktop with an APU the boot display is
 // often the iGPU, which used to stand in for "GPU".
 function sensorGpus(snapshot) {
-  var all = gpuList(snapshot)
-  var discrete = []
-  for (var i = 0; i < all.length; i++) if (!all[i].integrated) discrete.push(all[i])
-  return discrete.length > 0 ? discrete : all
+  return discreteGpus(snapshot)
 }
 
 // The card behind the single "GPU" temperature: the first in sensorGpus
@@ -457,9 +466,10 @@ function barDisks(settings) {
   if (raw.toLowerCase() === "none") return []
   if (!raw) {
     var style = moduleStyle(settings, "disks")
+    var styled = isSaved(settings, "disksStyle") || isSaved(settings, "style")
     return [{
       disk: String(settingValue(settings, "disksSource") || "all").trim() || "all",
-      show: style === "ring" || style === "ring-text" ? "used" : "speed"
+      show: !styled || style === "ring" || style === "ring-text" ? "used" : "speed"
     }]
   }
   var out = []
@@ -718,11 +728,19 @@ function styleOptions(module) {
   return out
 }
 
+function isSaved(settings, key) {
+  return !!settings && settings[key] !== undefined && settings[key] !== null
+}
+
 // Effective bar style for one module: its own override, else the global one.
+// Unsaved, the module's default look applies, unless a global style was
+// saved, which before 1.8 every module followed.
 function moduleStyle(settings, module) {
-  var own = normalizeStyle(settingValue(settings, module + "Style"))
-  if (own) return own
-  return normalizeStyle(settingValue(settings, "style")) || "both"
+  var key = module + "Style"
+  var global = normalizeStyle(settingValue(settings, "style")) || "both"
+  if (isSaved(settings, key)) return normalizeStyle(settings[key]) || global
+  if (isSaved(settings, "style")) return global
+  return normalizeStyle(SETTINGS[key]) || global
 }
 
 // A disk readout's look folded onto picture / figure / both.

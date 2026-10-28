@@ -40,8 +40,12 @@
     "allowMultiple": true,
     "defaultSection": "right",
     "defaults": {
-      "modules": "cpu,memory,network",
+      "modules": "cpu,memory,network,gpu,disks",
       "style": "both",
+      "cpuStyle": "graph",
+      "gpuStyle": "graph",
+      "memoryStyle": "ring",
+      "disksStyle": "graph",
       "graphWidth": 36,
       "temperatureUnit": "Celsius",
       "refreshSeconds": 1,
@@ -57,7 +61,7 @@
       "disksSource": "all",
       "barDisks": "",
       "barSensors": "cpu",
-      "barGpus": "all",
+      "barGpus": "discrete",
       "showGpuMemory": false,
       "barLabels": "text"
     },
@@ -67,7 +71,7 @@
         "type": "string",
         "label": "Bar modules",
         "description": "Comma-separated, in order: cpu, gpu, memory, disks, network, sensors, battery. Battery and GPU only appear when present; gpu expands to one readout per GPU picked in barGpus.",
-        "defaultValue": "cpu,memory,network"
+        "defaultValue": "cpu,memory,network,gpu,disks"
       },
       {
         "key": "tabs",
@@ -80,7 +84,7 @@
         "key": "style",
         "type": "enum",
         "label": "Bar style",
-        "description": "Default look of each bar readout: graph, ring, figure (text), graph and figure (both), or ring and figure. The Settings page can override it per module.",
+        "description": "Default look of each bar readout: graph, ring, figure (text), graph and figure (both), or ring and figure. The Settings page can override it per module; until either is set, CPU and GPU draw a graph, memory a ring, and disks a ring of space used.",
         "options": [
           "both",
           "graph",
@@ -127,8 +131,8 @@
         "key": "barGpus",
         "type": "string",
         "label": "GPU readouts",
-        "description": "Which GPUs get a bar readout: \"all\", \"none\", or comma-separated PCI addresses like 0000:01:00.0 (pick them on the Settings page).",
-        "defaultValue": "all"
+        "description": "Which GPUs get a bar readout: \"discrete\" (the discrete cards, or the integrated one when it is the only GPU), \"all\", \"none\", or comma-separated PCI addresses like 0000:01:00.0 (pick them on the Settings page).",
+        "defaultValue": "discrete"
       },
       {
         "key": "showGpuMemory",

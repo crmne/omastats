@@ -62,23 +62,11 @@ Column {
   readonly property var barDiskList: Model.barDisksHere(snapshot, stableSettings)
   readonly property var barSensorIds: Model.parseList(Model.settingValue(stableSettings, "barSensors"))
   readonly property var gpuOptions: Model.gpuList(snapshot)
-  // "all" keeps a GPU added later visible without another visit here.
-  readonly property var selectedGpuIds: {
-    var text = String(Model.settingValue(settings, "barGpus") || "all").trim().toLowerCase()
-    if (text === "none") return []
-    if (!text || text === "all") {
-      var every = []
-      for (var i = 0; i < gpuOptions.length; i++) every.push(Model.gpuId(gpuOptions[i]))
-      return every
-    }
-    var ids = Model.parseList(text)
-    // Cards saved on another machine (a synced shell.json) read as "all",
-    // matching the bar.
-    for (var j = 0; j < ids.length; j++) if (gpuOrder(ids[j]) < gpuOptions.length) return ids
-    var all = []
-    for (var k = 0; k < gpuOptions.length; k++) all.push(Model.gpuId(gpuOptions[k]))
-    return all
-  }
+  // "all" and "discrete" keep a GPU added later visible without another
+  // visit here. Cards saved on another machine (a synced shell.json) read as
+  // the default, matching the bar.
+  readonly property var selectedGpuIds: Model.selectedGpus(snapshot, Model.settingValue(settings, "barGpus")).map(Model.gpuId)
+  readonly property var discreteGpuIds: Model.discreteGpus(snapshot).map(Model.gpuId)
 
   // Position in the sampler's order (boot display first), so the bar keeps a
   // stable left-to-right order however the switches are flipped.
@@ -96,7 +84,9 @@ Column {
     }
     if (!enabled && at !== -1) list.splice(at, 1)
     if (list.length === 0) set("barGpus", "none")
-    else set("barGpus", list.length === gpuOptions.length ? "all" : list.join(","))
+    else if (list.length === gpuOptions.length) set("barGpus", "all")
+    else if (list.join(",") === discreteGpuIds.join(",")) set("barGpus", "discrete")
+    else set("barGpus", list.join(","))
   }
 
   function diskIndex(list, disk) {

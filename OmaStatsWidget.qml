@@ -84,7 +84,7 @@ Panel {
   readonly property string instanceKey: moduleName + ":" + Math.random().toString(36).slice(2, 8)
 
   readonly property string barSensors: String(setting("barSensors", Model.SETTINGS.barSensors) || "cpu")
-  readonly property string barGpus: String(setting("barGpus", Model.SETTINGS.barGpus) || "all")
+  readonly property string barGpus: String(setting("barGpus", Model.SETTINGS.barGpus) || Model.SETTINGS.barGpus)
   readonly property string barLabels: Model.barLabelMode(setting("barLabels", Model.SETTINGS.barLabels))
 
   property string currentTab: "cpu"
