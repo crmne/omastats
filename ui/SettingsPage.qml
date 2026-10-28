@@ -512,10 +512,8 @@ Column {
     StepperRow {
       label: "History"
       value: root.num("historySeconds")
-      unit: "s"
-      minimum: 30
-      maximum: 3600
-      step: 30
+      stops: Model.HISTORY_STOPS
+      duration: true
       onChanged: function(value) { root.set("historySeconds", value) }
     }
 
@@ -653,12 +651,15 @@ Column {
     property real step: 1
     // When set, the value walks these stops instead of min/max/step.
     property var stops: []
+    // Shows the value as a span of time ("4 min") instead of in `unit`.
+    property bool duration: false
 
     readonly property bool stepped: Array.isArray(stops) && stops.length > 0
-    readonly property int stopIndex: stepped ? Model.nearestStopIndex(value) : -1
+    readonly property int stopIndex: stepped ? Model.nearestStopIndex(value, stops) : -1
     readonly property bool canDecrease: stepped ? stopIndex > 0 : value > minimum
     readonly property bool canIncrease: stepped ? stopIndex < stops.length - 1 : value < maximum
-    readonly property string valueText: stepped ? Model.intervalText(value) : String(Math.round(value))
+    readonly property var durationParts: Model.durationParts(value)
+    readonly property string valueText: duration ? durationParts.value : (stepped ? Model.intervalText(value) : String(Math.round(value)))
 
     signal changed(real value)
 
@@ -711,7 +712,7 @@ Column {
         Measure {
           anchors.centerIn: parent
           value: stepper.valueText
-          unit: stepper.unit
+          unit: stepper.duration ? stepper.durationParts.unit : stepper.unit
           foreground: root.foreground
           fontFamily: root.fontFamily
         }

@@ -456,3 +456,15 @@ test("the bar shows discrete GPUs unless told otherwise", () => {
   assert.deepEqual(plain(model.selectedGpus({ gpus: [igpu, dgpu] }, "all")), [igpu, dgpu]);
   assert.deepEqual(plain(model.selectedGpus({ gpus: [igpu] }, "discrete")), [igpu]);
 });
+
+test("history steps through spans instead of 30 seconds at a time", () => {
+  const stops = model.HISTORY_STOPS;
+  assert.equal(stops[model.nearestStopIndex(240, stops)], 240);
+  assert.equal(stops[model.nearestStopIndex(250, stops)], 240, "a hand-saved value steps from the nearest span");
+  assert.equal(stops.length - 1 - model.nearestStopIndex(240, stops), 5, "four minutes to an hour in five clicks");
+  assert.equal(model.REFRESH_STOPS[model.nearestStopIndex(1)], 1);
+  assert.deepEqual(plain(model.durationParts(30)), { value: "30", unit: "s" });
+  assert.deepEqual(plain(model.durationParts(240)), { value: "4", unit: "min" });
+  assert.deepEqual(plain(model.durationParts(5400)), { value: "90", unit: "min" });
+  assert.deepEqual(plain(model.durationParts(3600)), { value: "1", unit: "h" });
+});

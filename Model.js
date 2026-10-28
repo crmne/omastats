@@ -87,15 +87,33 @@ var PANEL_CHOICES = {}
 // Sampling intervals offered by the Settings page, in seconds.
 var REFRESH_STOPS = [0.1, 0.2, 0.5, 1, 2, 5, 10]
 
-function nearestStopIndex(value) {
+// History spans offered there, in seconds. Steps of 30 s took over a
+// hundred clicks to reach an hour.
+var HISTORY_STOPS = [30, 60, 120, 240, 300, 600, 900, 1800, 3600]
+
+// The stop closest to `value` on a log scale, so a value saved between
+// two stops (or by hand) steps from where it is.
+function nearestStopIndex(value, stops) {
+  var list = stops || REFRESH_STOPS
   var v = Number(value)
-  var best = 3
+  var best = 0
   var bestDistance = Infinity
-  for (var i = 0; i < REFRESH_STOPS.length; i++) {
-    var d = Math.abs(Math.log(REFRESH_STOPS[i]) - Math.log(isFinite(v) && v > 0 ? v : 1))
+  for (var i = 0; i < list.length; i++) {
+    var d = Math.abs(Math.log(list[i]) - Math.log(isFinite(v) && v > 0 ? v : 1))
     if (d < bestDistance) { bestDistance = d; best = i }
   }
   return best
+}
+
+// A span as {value, unit}: "45 s", "4 min", "1 h".
+function durationParts(seconds) {
+  var v = Math.max(0, Math.round(Number(seconds) || 0))
+  if (v < 60) return { value: String(v), unit: "s" }
+  if (v < 3600 || v % 3600 !== 0) {
+    var minutes = v / 60
+    return { value: minutes === Math.round(minutes) ? String(minutes) : minutes.toFixed(1), unit: "min" }
+  }
+  return { value: String(v / 3600), unit: "h" }
 }
 
 function intervalText(seconds) {

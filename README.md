@@ -181,7 +181,8 @@ Open the panel and click the gear at the right end of the tab strip (or press `s
   ring and the figure under it; network and disk speeds show one rate per line,
   colored like their half of the graph.
 - **Panel**: choose which tabs appear and which sections each page shows.
-- **General**: temperature unit, refresh interval (0.1 s to 10 s), history span,
+- **General**: temperature unit, refresh interval (0.1 s to 10 s), history span
+  (30 s to 1 h, in steps such as 4, 10 and 30 minutes),
   bar graph width, optional utilization colors, and a reset.
 
 Utilization colors are off by default. When enabled, they grade CPU, GPU load,
