@@ -46,9 +46,40 @@ fn awake_delay(device: &str) -> Option<Duration> {
     Some(Duration::from_millis(ms))
 }
 
+/// Where runtime power management leaves a PCI device, for any driver.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Runtime {
+    /// The kernel never suspends it, so reading it costs nothing.
+    AlwaysOn,
+    /// Asleep, or on its way there: touching it would wake it.
+    Suspended,
+    /// Awake, and would suspend after going untouched for this long.
+    Awake(Duration),
+}
+
+/// NVIDIA's driver runs its own idle timer and leaves autosuspend_delay_ms
+/// unreadable, so its cards are given this long to fall asleep.
+const DEFAULT_DELAY: Duration = Duration::from_secs(5);
+
+pub fn runtime(device: &str) -> Runtime {
+    if read_text(format!("{device}/power/control")).as_deref() != Some("auto") {
+        return Runtime::AlwaysOn;
+    }
+    match read_text(format!("{device}/power/runtime_status")).as_deref() {
+        Some("suspended") | Some("suspending") => Runtime::Suspended,
+        Some(_) => Runtime::Awake(
+            read_text(format!("{device}/power/autosuspend_delay_ms"))
+                .and_then(|ms| ms.parse::<u64>().ok())
+                .map(Duration::from_millis)
+                .unwrap_or(DEFAULT_DELAY),
+        ),
+        None => Runtime::AlwaysOn,
+    }
+}
+
 /// Whether a card whose window opened at `opened` may be read at `now`, and
 /// whether that read opens a new window.
-fn decide(opened: Option<Instant>, delay: Duration, now: Instant) -> (bool, bool) {
+pub fn decide(opened: Option<Instant>, delay: Duration, now: Instant) -> (bool, bool) {
     match opened.map(|at| now.saturating_duration_since(at)) {
         Some(age) if age < READ_WINDOW => (true, false),
         Some(age) if age < delay + MARGIN => (false, false),
@@ -173,6 +204,20 @@ mod tests {
         let temp = format!("{dev}/temp1_input");
         assert_eq!(read_at(&dev, &temp, start + Duration::from_secs(1)), None);
         assert_eq!(read_at(&dev, &temp, start + Duration::from_secs(6)).as_deref(), Some("45000"));
+        let _ = std::fs::remove_dir_all(device.parent().unwrap());
+    }
+
+    #[test]
+    fn runtime_state_follows_control_and_status() {
+        let device = fake_card("runtime", "auto", "active");
+        let dev = device.to_string_lossy();
+        assert_eq!(runtime(&dev), Runtime::Awake(Duration::from_secs(5)));
+        std::fs::write(device.join("power/autosuspend_delay_ms"), "x\n").unwrap();
+        assert_eq!(runtime(&dev), Runtime::Awake(DEFAULT_DELAY));
+        std::fs::write(device.join("power/runtime_status"), "suspended\n").unwrap();
+        assert_eq!(runtime(&dev), Runtime::Suspended);
+        std::fs::write(device.join("power/control"), "on\n").unwrap();
+        assert_eq!(runtime(&dev), Runtime::AlwaysOn);
         let _ = std::fs::remove_dir_all(device.parent().unwrap());
     }
 

@@ -139,6 +139,7 @@ WidgetButton {
       case "cpu": return Model.percentText(cpu.total)
       case "gpu":
         if (Model.gpuHasUtil(gpu)) return Model.percentText(gpu.util)
+        if (gpu && gpu.asleep) return "Off"
         return gpu ? Model.compactFreq(gpu.mhz) : "—"
       case "gpuMemory": return gpuMemoryPercent === null ? "—" : Model.percentText(gpuMemoryPercent)
       case "memory": return Model.percentText(memPercent)
@@ -189,7 +190,8 @@ WidgetButton {
       case "gpuMemory":
         if (!gpu) return "GPU not detected"
         parts.push(Model.gpuTitle(gpu) + (Model.gpuHasUtil(gpu) ? " " + Model.percentText(gpu.util) : ""))
-        if (!Model.gpuHasUtil(gpu)) parts.push("load not reported")
+        if (gpu.asleep) parts.push("asleep")
+        else if (!Model.gpuHasUtil(gpu)) parts.push("load not reported")
         if (Model.freqText(gpu.mhz)) parts.push(Model.freqText(gpu.mhz))
         if (isFinite(Number(gpu.temp))) parts.push(Model.tempLongText(gpu.temp, temperatureUnit))
         if (gpuMemoryPercent !== null) parts.push("VRAM " + Model.percentText(gpuMemoryPercent))

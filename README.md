@@ -35,8 +35,11 @@ Intel readout carries its clock and temperature and reports no load. Every read
 of an awake AMD card restarts its runtime-suspend timer, so while such a card
 can suspend, its load, clock, power and temperatures refresh once per
 autosuspend delay (about six seconds by default) and it can still sleep when
-idle. NVIDIA
-cards remain visible when `nvidia-smi` is unavailable. Existing 1.0 tab settings
+idle. NVIDIA works the same way: every `nvidia-smi` call wakes the card, so
+while a card can runtime-suspend (`power/control` is `auto`, as on most hybrid
+laptops on battery), OmaStats asks it once per idle period, never while it is
+asleep, and shows it as Off. Cards that never suspend stream a reading every
+second as before. NVIDIA cards remain visible when `nvidia-smi` is unavailable. Existing 1.0 tab settings
 keep access to GPU details when upgrading; GPU can then be hidden separately.
 
 Each GPU card lists the processes using it, with how busy each keeps the card's

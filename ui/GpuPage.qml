@@ -47,7 +47,7 @@ Column {
 
       CardHeader {
         title: gpuCard.gpu ? Model.gpuTitle(gpuCard.gpu) : "GPU"
-        detail: gpuCard.gpu ? root.headerDetail(gpuCard.gpu.mhz, gpuCard.gpu.temp) : ""
+        detail: !gpuCard.gpu ? "" : (gpuCard.gpu.asleep ? "Asleep" : root.headerDetail(gpuCard.gpu.mhz, gpuCard.gpu.temp))
         foreground: root.foreground
         fontFamily: root.fontFamily
       }
@@ -65,7 +65,7 @@ Column {
 
       StatRow {
         label: "Load"
-        detail: gpuCard.hasUtil ? "" : "load not reported"
+        detail: gpuCard.hasUtil ? "" : (gpuCard.gpu && gpuCard.gpu.asleep ? "asleep" : "load not reported")
         dot: Model.flag(root.settings, "utilizationColors") ? "transparent" : root.s1
         value: gpuCard.hasUtil ? String(Math.round(gpuCard.gpu.util)) : "—"
         unit: gpuCard.hasUtil ? "%" : ""

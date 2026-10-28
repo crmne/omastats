@@ -587,6 +587,44 @@ class RuntimePmGate:
 
 RUNTIME_PM = RuntimePmGate()
 
+# NVIDIA's driver runs its own idle timer and leaves autosuspend_delay_ms
+# unreadable, so its cards are given this long to fall asleep.
+DEFAULT_SUSPEND_DELAY = 5.0
+
+
+def runtime_state(device: str) -> float | str:
+    """Where runtime power management leaves a PCI device, for any driver:
+    "on" if the kernel never suspends it, "suspended" if touching it would
+    wake it, or the seconds it must go untouched to suspend while awake."""
+    if read_text(f"{device}/power/control") != "auto":
+        return "on"
+    status = read_text(f"{device}/power/runtime_status")
+    if status in ("suspended", "suspending"):
+        return "suspended"
+    if not status:
+        return "on"
+    ms = read_int(f"{device}/power/autosuspend_delay_ms")
+    return ms / 1000 if ms is not None and ms >= 0 else DEFAULT_SUSPEND_DELAY
+
+
+def nvidia_access(states: list, opened: float | None, now: float) -> tuple[str, bool]:
+    """Every nvidia-smi call wakes all NVIDIA cards and restarts their idle
+    timers. "stream" when none can suspend, so `nvidia-smi -l 1` runs;
+    "query" when one that can is awake and may be asked once, in a window
+    the GPU and process samplers share; "rest" while a card is asleep, or
+    left alone so it can fall asleep. Also whether a new window opens."""
+    if "suspended" in states:
+        return "rest", False
+    delays = [state for state in states if not isinstance(state, str)]
+    if not delays:
+        return "stream", False
+    age = None if opened is None else now - opened
+    if age is not None and age < RuntimePmGate.READ_WINDOW:
+        return "query", False
+    if age is not None and age < min(delays) + RuntimePmGate.MARGIN:
+        return "rest", False
+    return "query", True
+
 
 # ----------------------------------------------------------------------------- GPU
 
@@ -665,8 +703,9 @@ def order_cards(cards: list[GpuCard]) -> list[GpuCard]:
 
 
 class GpuSampler:
-    """Every GPU in the machine: NVIDIA via a long-running `nvidia-smi -l`
-    reader keyed by PCI address, AMD/Intel via sysfs."""
+    """Every GPU in the machine: NVIDIA via nvidia-smi keyed by PCI address,
+    streamed when no card can suspend and asked once per idle period when one
+    can; AMD/Intel via sysfs."""
 
     QUERY = (
         "pci.bus_id,name,utilization.gpu,memory.used,memory.total,temperature.gpu,"
@@ -681,7 +720,15 @@ class GpuSampler:
         self.proc: subprocess.Popen | None = None
         # nvidia-smi's card index to PCI address, looked up on first use.
         self.nvidia_slots: dict[str, str] | None = None
+        # When the current read window of the suspendable cards opened.
+        self.opened: float | None = None
+        self.querying = False
+        # NVIDIA cards found asleep this tick, by PCI address.
+        self.asleep: set[str] = set()
         self._detect()
+        # Start NVIDIA readings now, so the first sample already has them.
+        if self._nvidia_gate() == "query":
+            self._query_nvidia()
 
     def _detect(self) -> None:
         drm = "/sys/class/drm"
@@ -704,8 +751,45 @@ class GpuSampler:
         self.cards = order_cards(found)
         for entry in self.cards:
             entry.name = self._pci_name(entry.slot)
-        if any(c.kind == "nvidia" for c in self.cards):
-            self._start_nvidia()
+
+    def _nvidia_gate(self, now: float | None = None) -> str:
+        """Whether nvidia-smi may run now, opening a read window if it starts
+        one. TLP and friends switch power/control between AC and battery, so
+        it is decided again every tick."""
+        nvidia = [c for c in self.cards if c.kind == "nvidia"]
+        if not nvidia or not command_path("nvidia-smi"):
+            return "rest"
+        now = time.monotonic() if now is None else now
+        states = [runtime_state(c.device) for c in nvidia]
+        self.asleep = {c.slot for c, state in zip(nvidia, states) if state == "suspended"}
+        access, reopen = nvidia_access(states, self.opened, now)
+        if reopen:
+            self.opened = now
+        if access == "stream":
+            if self.proc is None or self.proc.poll() is not None:
+                self._start_nvidia()
+        else:
+            self.stop()
+        return access
+
+    def _query_nvidia(self) -> None:
+        """One reading of every NVIDIA card, in the background so a slow
+        nvidia-smi never holds up the sampler."""
+        with self.lock:
+            if self.querying:
+                return
+            self.querying = True
+
+        def query() -> None:
+            try:
+                out = run(["nvidia-smi", f"--query-gpu={self.QUERY}", "--format=csv,noheader,nounits"])
+                for line in out.splitlines():
+                    self._store_nvidia(line)
+            finally:
+                with self.lock:
+                    self.querying = False
+
+        threading.Thread(target=query, daemon=True).start()
 
     @staticmethod
     def _pci_name(slot: str) -> str:
@@ -734,38 +818,42 @@ class GpuSampler:
         except OSError:
             self.proc = None
             return
-        threading.Thread(target=self._read_nvidia, daemon=True).start()
+        threading.Thread(target=self._read_nvidia, args=(self.proc,), daemon=True).start()
 
-    def _read_nvidia(self) -> None:
-        assert self.proc and self.proc.stdout
-        for line in bounded_lines(self.proc.stdout, STREAM_LINE_LIMIT):
-            parts = [p.strip() for p in line.strip().split(",")]
-            if len(parts) < 10:
-                continue
+    def _read_nvidia(self, proc: subprocess.Popen) -> None:
+        assert proc.stdout
+        for line in bounded_lines(proc.stdout, STREAM_LINE_LIMIT):
+            self._store_nvidia(line)
 
-            def num(value: str) -> float | None:
-                try:
-                    return float(value)
-                except ValueError:
-                    return None
+    def _store_nvidia(self, line: str) -> None:
+        """One nvidia-smi CSV row, kept under its card's PCI address."""
+        parts = [p.strip() for p in line.strip().split(",")]
+        if len(parts) < 10:
+            return
 
-            slot = normalize_slot(parts[0])
-            mem_used = num(parts[3])
-            mem_total = num(parts[4])
-            snapshot = {
-                "name": bounded_text(parts[1]),
-                "vendor": "nvidia",
-                "util": num(parts[2]),
-                "memUsed": mem_used * 1024 * 1024 if mem_used is not None else None,
-                "memTotal": mem_total * 1024 * 1024 if mem_total is not None else None,
-                "temp": num(parts[5]),
-                "power": num(parts[6]),
-                "mhz": num(parts[7]),
-                "maxMhz": num(parts[8]),
-                "fan": num(parts[9]),
-            }
-            with self.lock:
-                self.latest[slot] = snapshot
+        def num(value: str) -> float | None:
+            try:
+                return float(value)
+            except ValueError:
+                return None
+
+        slot = normalize_slot(parts[0])
+        mem_used = num(parts[3])
+        mem_total = num(parts[4])
+        snapshot = {
+            "name": bounded_text(parts[1]),
+            "vendor": "nvidia",
+            "util": num(parts[2]),
+            "memUsed": mem_used * 1024 * 1024 if mem_used is not None else None,
+            "memTotal": mem_total * 1024 * 1024 if mem_total is not None else None,
+            "temp": num(parts[5]),
+            "power": num(parts[6]),
+            "mhz": num(parts[7]),
+            "maxMhz": num(parts[8]),
+            "fan": num(parts[9]),
+        }
+        with self.lock:
+            self.latest[slot] = snapshot
 
     @staticmethod
     def _hwmon_value(hwmon: str | None, prefix: str, labels: tuple[str, ...]) -> float | None:
@@ -787,6 +875,10 @@ class GpuSampler:
         if entry.kind == "nvidia":
             with self.lock:
                 reading = self.latest.get(entry.slot)
+            if entry.slot in self.asleep:
+                # Asleep cards report nothing; the last reading is stale.
+                return {"id": entry.slot, "name": (reading or {}).get("name") or entry.name or "NVIDIA",
+                        "vendor": "nvidia", "asleep": True, "util": None}
             snapshot = dict(reading) if reading else {
                 "name": entry.name or "NVIDIA", "vendor": "nvidia", "util": None
             }
@@ -819,6 +911,8 @@ class GpuSampler:
         }
 
     def sample_all(self) -> list[dict]:
+        if self._nvidia_gate() == "query":
+            self._query_nvidia()
         return [self._sample_card(entry) for entry in self.cards]
 
     def integrated_slots(self) -> set[str]:
@@ -827,7 +921,7 @@ class GpuSampler:
     def nvidia_processes(self) -> list[dict]:
         """What each process uses of every NVIDIA card. The proprietary driver
         publishes no per-client counters in fdinfo, so this asks nvidia-smi."""
-        if self.proc is None:
+        if self._nvidia_gate() == "rest":
             return []
         if self.nvidia_slots is None:
             self.nvidia_slots = {}
@@ -845,6 +939,7 @@ class GpuSampler:
         if self.proc and self.proc.poll() is None:
             kill_process_group(self.proc)
             self.proc.wait()
+        self.proc = None
 
 
 # -------------------------------------------------------------------------- Memory

@@ -49,6 +49,52 @@ class GpuTests(unittest.TestCase):
                 sampler.stop()
 
 
+class NvidiaAccessTests(unittest.TestCase):
+    access = staticmethod(NAMESPACE["nvidia_access"])
+
+    def test_always_on_cards_stream(self):
+        self.assertEqual(self.access(["on"], None, 100.0), ("stream", False))
+
+    def test_a_sleeping_card_is_never_asked(self):
+        self.assertEqual(self.access(["on", "suspended"], None, 100.0), ("rest", False))
+
+    def test_an_awake_card_that_can_suspend_is_queried_then_left_alone(self):
+        self.assertEqual(self.access([5.0], None, 100.0), ("query", True))
+        # The process list in the same tick shares the window.
+        self.assertEqual(self.access([5.0], 100.0, 100.1), ("query", False))
+        self.assertEqual(self.access([5.0], 100.0, 103.0), ("rest", False))
+        self.assertEqual(self.access([5.0], 100.0, 106.0), ("query", True))
+
+    def test_runtime_state_follows_control_and_status(self):
+        root = tempfile.TemporaryDirectory()
+        self.addCleanup(root.cleanup)
+        device = Path(root.name)
+        (device / "power").mkdir()
+        (device / "power/control").write_text("auto\n")
+        (device / "power/runtime_status").write_text("active\n")
+        state = NAMESPACE["runtime_state"]
+        # NVIDIA leaves the delay unreadable.
+        self.assertEqual(state(str(device)), NAMESPACE["DEFAULT_SUSPEND_DELAY"])
+        (device / "power/autosuspend_delay_ms").write_text("2000\n")
+        self.assertEqual(state(str(device)), 2.0)
+        (device / "power/runtime_status").write_text("suspended\n")
+        self.assertEqual(state(str(device)), "suspended")
+        (device / "power/control").write_text("on\n")
+        self.assertEqual(state(str(device)), "on")
+
+    def test_a_sleeping_card_reports_only_its_identity(self):
+        sampler = NAMESPACE["GpuSampler"].__new__(NAMESPACE["GpuSampler"])
+        sampler.lock = NAMESPACE["threading"].Lock()
+        sampler.latest = {"0000:01:00.0": {"name": "RTX", "vendor": "nvidia", "util": 40.0, "temp": 60.0}}
+        sampler.asleep = {"0000:01:00.0"}
+        card = SimpleNamespace(kind="nvidia", slot="0000:01:00.0", name="")
+        reading = sampler._sample_card(card)
+        self.assertTrue(reading["asleep"])
+        self.assertEqual(reading["name"], "RTX")
+        self.assertIsNone(reading["util"])
+        self.assertNotIn("temp", reading)
+
+
 class RuntimePmTests(unittest.TestCase):
     def card(self, control: str, status: str) -> tuple[Path, str]:
         """A fake amdgpu PCI device with runtime PM files and one attribute."""

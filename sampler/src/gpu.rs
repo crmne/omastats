@@ -8,8 +8,9 @@ use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::io::BufReader;
 use std::process::{Child, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 const NVIDIA_QUERY: &str =
     "pci.bus_id,name,utilization.gpu,memory.used,memory.total,temperature.gpu,power.draw,clocks.gr,clocks.max.gr,fan.speed";
@@ -182,12 +183,54 @@ fn parse_pmon(out: &str, slots: &HashMap<String, String>) -> Vec<NvidiaProcess> 
     rows
 }
 
+/// How the NVIDIA cards may be asked for readings this tick.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum NvidiaAccess {
+    /// None of them can runtime-suspend, so one `nvidia-smi -l 1` streams.
+    Stream,
+    /// One may suspend and is awake: a query now opens a read window.
+    Query,
+    /// A card is asleep, or awake and left alone so it can fall asleep.
+    /// nvidia-smi opens every card, so nothing is asked.
+    Rest,
+}
+
+/// Every nvidia-smi call wakes all NVIDIA cards and restarts their idle
+/// timers. A card that can suspend is queried once, in a window that the
+/// GPU and process samplers share, then left alone for its delay.
+fn nvidia_access(states: &[pm::Runtime], opened: Option<Instant>, now: Instant) -> (NvidiaAccess, bool) {
+    if states.contains(&pm::Runtime::Suspended) {
+        return (NvidiaAccess::Rest, false);
+    }
+    let delay = states
+        .iter()
+        .filter_map(|state| match state {
+            pm::Runtime::Awake(delay) => Some(*delay),
+            _ => None,
+        })
+        .min();
+    let Some(delay) = delay else {
+        return (NvidiaAccess::Stream, false);
+    };
+    match pm::decide(opened, delay, now) {
+        (true, reopen) => (NvidiaAccess::Query, reopen),
+        (false, _) => (NvidiaAccess::Rest, false),
+    }
+}
+
 pub struct GpuSampler {
     cards: Vec<GpuCard>,
     latest: Arc<Mutex<HashMap<String, Value>>>,
+    /// The `nvidia-smi -l 1` stream, while no NVIDIA card can suspend.
     child: Option<Child>,
     /// nvidia-smi's card index to PCI address, looked up on first use.
     nvidia_slots: Option<HashMap<String, String>>,
+    /// When the current read window of the suspendable cards opened.
+    opened: Option<Instant>,
+    /// A one-shot query is still running.
+    querying: Arc<AtomicBool>,
+    /// NVIDIA cards found asleep this tick, by PCI address.
+    asleep: Vec<String>,
 }
 
 impl GpuSampler {
@@ -197,8 +240,15 @@ impl GpuSampler {
             latest: Arc::new(Mutex::new(HashMap::new())),
             child: None,
             nvidia_slots: None,
+            opened: None,
+            querying: Arc::new(AtomicBool::new(false)),
+            asleep: Vec::new(),
         };
         sampler.detect();
+        // Start NVIDIA readings now, so the first sample already has them.
+        if sampler.nvidia_gate(Instant::now()) == NvidiaAccess::Query {
+            sampler.query_nvidia();
+        }
         sampler
     }
 
@@ -234,9 +284,62 @@ impl GpuSampler {
         for card in &mut self.cards {
             card.name = bounded_text(&Self::pci_name(&card.slot), EXTERNAL_TEXT_LIMIT);
         }
-        if self.cards.iter().any(|card| card.kind == Kind::Nvidia) {
-            self.start_nvidia();
+    }
+
+    fn has_nvidia(&self) -> bool {
+        self.cards.iter().any(|card| card.kind == Kind::Nvidia) && which("nvidia-smi")
+    }
+
+    /// Whether nvidia-smi may run now, opening a read window if it starts
+    /// one. TLP and friends switch power/control between AC and battery, so
+    /// it is decided again every tick.
+    fn nvidia_gate(&mut self, now: Instant) -> NvidiaAccess {
+        if !self.has_nvidia() {
+            return NvidiaAccess::Rest;
         }
+        let nvidia: Vec<&GpuCard> = self.cards.iter().filter(|c| c.kind == Kind::Nvidia).collect();
+        let states: Vec<pm::Runtime> = nvidia.iter().map(|c| pm::runtime(&c.device)).collect();
+        self.asleep = nvidia
+            .iter()
+            .zip(&states)
+            .filter(|(_, state)| **state == pm::Runtime::Suspended)
+            .map(|(card, _)| card.slot.clone())
+            .collect();
+        let (access, reopen) = nvidia_access(&states, self.opened, now);
+        if reopen {
+            self.opened = Some(now);
+        }
+        if access == NvidiaAccess::Stream {
+            if self.child.is_none() {
+                self.start_nvidia();
+            }
+        } else {
+            self.stop();
+        }
+        access
+    }
+
+    /// One reading of every NVIDIA card, in the background so a slow
+    /// nvidia-smi never holds up the sampler.
+    fn query_nvidia(&self) {
+        if self.querying.swap(true, Ordering::SeqCst) {
+            return;
+        }
+        let latest = Arc::clone(&self.latest);
+        let querying = Arc::clone(&self.querying);
+        std::thread::spawn(move || {
+            let out = run(
+                "nvidia-smi",
+                &[&format!("--query-gpu={NVIDIA_QUERY}"), "--format=csv,noheader,nounits"],
+                Duration::from_secs(2),
+            );
+            if let Ok(mut map) = latest.lock() {
+                for (slot, snapshot) in out.lines().filter_map(parse_nvidia_line) {
+                    map.insert(slot, snapshot);
+                }
+            }
+            querying.store(false, Ordering::SeqCst);
+        });
     }
 
     fn pci_name(slot: &str) -> String {
@@ -338,6 +441,17 @@ impl GpuSampler {
                 .lock()
                 .ok()
                 .and_then(|map| map.get(&card.slot).cloned());
+            if self.asleep.contains(&card.slot) {
+                // Asleep cards report nothing; the last reading is stale.
+                return json!({
+                    "id": card.slot,
+                    "name": reading.as_ref().and_then(|r| r["name"].as_str().map(str::to_string))
+                        .unwrap_or_else(|| if card.name.is_empty() { Kind::Nvidia.fallback_name().to_string() } else { card.name.clone() }),
+                    "vendor": "nvidia",
+                    "asleep": true,
+                    "util": Value::Null,
+                });
+            }
             let mut snapshot = reading.unwrap_or_else(|| {
                 json!({
                     "name": if card.name.is_empty() { Kind::Nvidia.fallback_name() } else { card.name.as_str() },
@@ -396,7 +510,7 @@ impl GpuSampler {
     /// What each process uses of every NVIDIA card. The proprietary driver
     /// publishes no per-client counters in fdinfo, so this asks nvidia-smi.
     pub fn nvidia_processes(&mut self) -> Vec<NvidiaProcess> {
-        if self.child.is_none() {
+        if self.nvidia_gate(Instant::now()) == NvidiaAccess::Rest {
             return Vec::new();
         }
         let slots = self.nvidia_slots.get_or_insert_with(|| {
@@ -421,7 +535,10 @@ impl GpuSampler {
     }
 
     /// Every detected GPU, boot display first.
-    pub fn sample_all(&self) -> Vec<Value> {
+    pub fn sample_all(&mut self) -> Vec<Value> {
+        if self.nvidia_gate(Instant::now()) == NvidiaAccess::Query {
+            self.query_nvidia();
+        }
         self.cards.iter().map(|c| self.sample_card(c)).collect()
     }
 
@@ -520,12 +637,37 @@ mod tests {
             latest: Arc::new(Mutex::new(HashMap::new())),
             child: None,
             nvidia_slots: None,
+            opened: None,
+            querying: Arc::new(AtomicBool::new(false)),
+            asleep: Vec::new(),
         };
-        let readings = sampler.sample_all();
+        // sample_card, not sample_all, so the test never starts nvidia-smi.
+        let readings: Vec<Value> = sampler.cards.iter().map(|c| sampler.sample_card(c)).collect();
         assert_eq!(readings.len(), 1);
         assert_eq!(readings[0]["id"], "0000:01:00.0");
         assert_eq!(readings[0]["vendor"], "nvidia");
         assert!(readings[0]["util"].is_null());
+    }
+
+    #[test]
+    fn a_sleeping_card_reports_only_its_identity() {
+        let sampler = GpuSampler {
+            cards: vec![card(Kind::Nvidia, "0000:01:00.0", false)],
+            latest: Arc::new(Mutex::new(HashMap::from([(
+                "0000:01:00.0".to_string(),
+                json!({"name": "RTX", "vendor": "nvidia", "util": 40.0, "temp": 60.0}),
+            )]))),
+            child: None,
+            nvidia_slots: None,
+            opened: None,
+            querying: Arc::new(AtomicBool::new(false)),
+            asleep: vec!["0000:01:00.0".to_string()],
+        };
+        let reading = sampler.sample_card(&sampler.cards[0]);
+        assert_eq!(reading["asleep"], true);
+        assert_eq!(reading["name"], "RTX");
+        assert!(reading["util"].is_null());
+        assert!(reading["temp"].is_null());
     }
 
     #[test]
@@ -546,6 +688,33 @@ mod tests {
         assert_eq!(rows[1].name, "Hyprland");
         assert_eq!(rows[1].util, 30.0);
         assert_eq!(rows[1].slot, "0000:01:00.0");
+    }
+
+    #[test]
+    fn always_on_cards_stream() {
+        let now = Instant::now();
+        assert_eq!(nvidia_access(&[pm::Runtime::AlwaysOn], None, now), (NvidiaAccess::Stream, false));
+    }
+
+    #[test]
+    fn a_sleeping_card_is_never_asked() {
+        let now = Instant::now();
+        let states = [pm::Runtime::AlwaysOn, pm::Runtime::Suspended];
+        assert_eq!(nvidia_access(&states, None, now), (NvidiaAccess::Rest, false));
+    }
+
+    #[test]
+    fn an_awake_card_that_can_suspend_is_queried_then_left_alone() {
+        let start = Instant::now();
+        let states = [pm::Runtime::Awake(Duration::from_secs(5))];
+        assert_eq!(nvidia_access(&states, None, start), (NvidiaAccess::Query, true));
+        // The process list in the same tick shares the window.
+        let soon = start + Duration::from_millis(100);
+        assert_eq!(nvidia_access(&states, Some(start), soon), (NvidiaAccess::Query, false));
+        let cooling = start + Duration::from_secs(3);
+        assert_eq!(nvidia_access(&states, Some(start), cooling), (NvidiaAccess::Rest, false));
+        let later = start + Duration::from_secs(6);
+        assert_eq!(nvidia_access(&states, Some(start), later), (NvidiaAccess::Query, true));
     }
 
     #[test]
