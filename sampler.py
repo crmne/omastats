@@ -871,6 +871,17 @@ class GpuSampler:
             return None
         return parse_float(RUNTIME_PM.read_hwmon(f"{hwmon}/{chosen}"))
 
+    @staticmethod
+    def _hwmon_labelled(hwmon: str | None, prefix: str, label: str) -> float | None:
+        """The `prefix` input labelled exactly `label`, with no fallback."""
+        if not hwmon:
+            return None
+        for entry in list_dir(hwmon):
+            if (entry.startswith(prefix) and entry.endswith("_input")
+                    and read_text(f"{hwmon}/{entry[:-6]}_label").lower() == label):
+                return parse_float(RUNTIME_PM.read_hwmon(f"{hwmon}/{entry}"))
+        return None
+
     def _sample_card(self, entry: GpuCard) -> dict:
         if entry.kind == "nvidia":
             with self.lock:
@@ -893,6 +904,9 @@ class GpuSampler:
         else:
             mhz = read_float(f"{card_dir}/gt_cur_freq_mhz") or read_float(f"{card_dir}/gt/gt0/rps_cur_freq_mhz")
         temp = self._hwmon_value(entry.hwmon, "temp", ("edge", "junction"))
+        # amdgpu's VRAM clock: one stuck at its top level at idle (several
+        # monitors, high refresh) is a common cause of high idle power.
+        mem_freq = self._hwmon_labelled(entry.hwmon, "freq", "mclk")
         # An APU's PPT is the whole package's power, shown as CPU power.
         power = None if entry.integrated else self._hwmon_value(entry.hwmon, "power", ("ppt", "power"))
         return {
@@ -906,6 +920,7 @@ class GpuSampler:
             "temp": temp / 1000 if temp else None,
             "power": power / 1_000_000 if power else None,
             "mhz": mhz or None,
+            "memMhz": mem_freq / 1_000_000 if mem_freq else None,
             "maxMhz": read_float(f"{card_dir}/gt_max_freq_mhz"),
             "fan": None,
         }

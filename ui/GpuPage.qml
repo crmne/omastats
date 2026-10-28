@@ -97,6 +97,15 @@ Column {
       }
 
       StatRow {
+        visible: !!(gpuCard.gpu && Model.finiteValue(gpuCard.gpu.memMhz))
+        label: "Memory clock"
+        value: visible ? Model.freqParts(gpuCard.gpu.memMhz).value : ""
+        unit: visible ? Model.freqParts(gpuCard.gpu.memMhz).unit : ""
+        foreground: root.foreground
+        fontFamily: root.fontFamily
+      }
+
+      StatRow {
         visible: !!(gpuCard.gpu && isFinite(Number(gpuCard.gpu.power)) && gpuCard.gpu.power !== null)
         label: "Power"
         value: gpuCard.gpu && gpuCard.gpu.power !== null ? String(Math.round(gpuCard.gpu.power)) : ""

@@ -31,7 +31,9 @@ the Settings page picks which ones appear in the bar. The firmware boot display
 leads, followed by the other cards in PCI address order. The GPU tab always
 shows every detected card, including cards whose telemetry is unavailable.
 Intel's i915/xe drivers publish no utilisation counter through sysfs, so an
-Intel readout carries its clock and temperature and reports no load. Every read
+Intel readout carries its clock and temperature and reports no load. AMD cards also show their memory clock, which reveals VRAM stuck at full speed
+while idle (several monitors or a high refresh rate), a common cause of high
+idle power. Every read
 of an awake AMD card restarts its runtime-suspend timer, so while such a card
 can suspend, its load, clock, power and temperatures refresh once per
 autosuspend delay (about six seconds by default) and it can still sleep when

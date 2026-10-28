@@ -920,6 +920,14 @@ function freqText(mhz) {
   return m >= 1000 ? (m / 1000).toFixed(2) + " GHz" : Math.round(m) + " MHz"
 }
 
+// A clock as {value, unit}: "96" MHz, "1.71" GHz.
+function freqParts(mhz) {
+  var text = freqText(mhz)
+  if (!text) return { value: "—", unit: "" }
+  var at = text.lastIndexOf(" ")
+  return { value: text.slice(0, at), unit: text.slice(at + 1) }
+}
+
 // "167 W" for a power reading, or "" when there is none.
 function wattsText(watts) {
   if (watts === null || watts === undefined || watts === "") return ""

@@ -468,3 +468,9 @@ test("history steps through spans instead of 30 seconds at a time", () => {
   assert.deepEqual(plain(model.durationParts(5400)), { value: "90", unit: "min" });
   assert.deepEqual(plain(model.durationParts(3600)), { value: "1", unit: "h" });
 });
+
+test("clocks split into figure and unit", () => {
+  assert.deepEqual(plain(model.freqParts(96)), { value: "96", unit: "MHz" });
+  assert.deepEqual(plain(model.freqParts(1710)), { value: "1.71", unit: "GHz" });
+  assert.deepEqual(plain(model.freqParts(null)), { value: "—", unit: "" });
+});

@@ -95,6 +95,20 @@ class NvidiaAccessTests(unittest.TestCase):
         self.assertNotIn("temp", reading)
 
 
+class MemoryClockTests(unittest.TestCase):
+    def test_mclk_is_read_by_its_label_only(self):
+        root = tempfile.TemporaryDirectory()
+        self.addCleanup(root.cleanup)
+        hwmon = Path(root.name)
+        (hwmon / "freq1_input").write_text("2400000000\n")
+        (hwmon / "freq1_label").write_text("sclk\n")
+        labelled = NAMESPACE["GpuSampler"]._hwmon_labelled
+        self.assertIsNone(labelled(str(hwmon), "freq", "mclk"), "sclk is not the memory clock")
+        (hwmon / "freq2_input").write_text("96000000\n")
+        (hwmon / "freq2_label").write_text("mclk\n")
+        self.assertEqual(labelled(str(hwmon), "freq", "mclk"), 96000000.0)
+
+
 class RuntimePmTests(unittest.TestCase):
     def card(self, control: str, status: str) -> tuple[Path, str]:
         """A fake amdgpu PCI device with runtime PM files and one attribute."""

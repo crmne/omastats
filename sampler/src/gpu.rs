@@ -434,6 +434,18 @@ impl GpuSampler {
         pm::read_hwmon_f64(&format!("{hwmon}/{}", chosen?))
     }
 
+    /// The `prefix` input labelled exactly `label`, with no fallback.
+    fn hwmon_labelled(hwmon: Option<&String>, prefix: &str, label: &str) -> Option<f64> {
+        let hwmon = hwmon?;
+        let entry = list_dir(hwmon).into_iter().find(|entry| {
+            entry.starts_with(prefix)
+                && entry.ends_with("_input")
+                && read_text(format!("{hwmon}/{}_label", &entry[..entry.len() - 6]))
+                    .is_some_and(|l| l.eq_ignore_ascii_case(label))
+        })?;
+        pm::read_hwmon_f64(&format!("{hwmon}/{entry}"))
+    }
+
     fn sample_card(&self, card: &GpuCard) -> Value {
         if card.kind == Kind::Nvidia {
             let reading = self
@@ -482,6 +494,9 @@ impl GpuSampler {
             .map(|f| f / 1_000_000.0)
             .or_else(|| read_f64(format!("{parent}/gt_cur_freq_mhz")))
             .or_else(|| read_f64(format!("{parent}/gt/gt0/rps_cur_freq_mhz")));
+        // amdgpu's VRAM clock: one stuck at its top level at idle (several
+        // monitors, high refresh) is a common cause of high idle power.
+        let mem_mhz = Self::hwmon_labelled(card.hwmon.as_ref(), "freq", "mclk").map(|f| f / 1_000_000.0);
         json!({
             "id": card.slot,
             "name": if card.name.is_empty() { card.kind.fallback_name() } else { card.name.as_str() },
@@ -493,6 +508,7 @@ impl GpuSampler {
             "temp": opt_f64(temp),
             "power": opt_f64(power),
             "mhz": opt_f64(mhz),
+            "memMhz": opt_f64(mem_mhz),
             "maxMhz": opt_f64(read_f64(format!("{parent}/gt_max_freq_mhz"))),
             "fan": Value::Null,
         })
@@ -715,6 +731,21 @@ mod tests {
         assert_eq!(nvidia_access(&states, Some(start), cooling), (NvidiaAccess::Rest, false));
         let later = start + Duration::from_secs(6);
         assert_eq!(nvidia_access(&states, Some(start), later), (NvidiaAccess::Query, true));
+    }
+
+    #[test]
+    fn mclk_is_read_by_its_label_only() {
+        let dir = std::env::temp_dir().join(format!("omastats-mclk-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("freq1_input"), "2400000000\n").unwrap();
+        std::fs::write(dir.join("freq1_label"), "sclk\n").unwrap();
+        let hwmon = dir.to_string_lossy().to_string();
+        assert_eq!(GpuSampler::hwmon_labelled(Some(&hwmon), "freq", "mclk"), None);
+        std::fs::write(dir.join("freq2_input"), "96000000\n").unwrap();
+        std::fs::write(dir.join("freq2_label"), "mclk\n").unwrap();
+        assert_eq!(GpuSampler::hwmon_labelled(Some(&hwmon), "freq", "mclk"), Some(96_000_000.0));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
