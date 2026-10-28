@@ -474,3 +474,42 @@ test("clocks split into figure and unit", () => {
   assert.deepEqual(plain(model.freqParts(1710)), { value: "1.71", unit: "GHz" });
   assert.deepEqual(plain(model.freqParts(null)), { value: "—", unit: "" });
 });
+
+test("Power replaces Battery as a tab, and saved tab lists follow", () => {
+  assert.ok(model.panelTabs(false, undefined, true).includes("power"), "a desktop gets the tab too");
+  assert.deepEqual(plain(model.panelTabs(true, "cpu,memory,battery", false)), ["cpu", "memory", "power"]);
+  assert.equal(model.tabFor("battery"), "power");
+  assert.equal(model.pageFile("power"), "PowerPage.qml");
+  assert.deepEqual(plain(model.parseTabs("battery,power,cpu")), ["power", "cpu"]);
+  assert.ok(model.parseModules("cpu,battery").includes("battery"), "the battery bar readout stays");
+});
+
+test("power totals prefer what measures the whole machine", () => {
+  const gpus = [{ id: "0000:11:00.0", integrated: true, power: null },
+    { id: "0000:01:00.0", vendor: "nvidia", name: "NVIDIA GeForce RTX 3090", power: 102.9 }];
+  const desktop = model.powerSummary({ cpu: { power: 114 }, gpus, power: { zones: {}, psu: null } });
+  assert.equal(desktop.total, 216.9);
+  assert.equal(desktop.source, "estimate");
+  assert.equal(desktop.detail, "CPU and GPUs only");
+  assert.deepEqual(plain(desktop.rows.map(r => r.label)), ["CPU package", "NVIDIA RTX 3090"]);
+
+  const psu = model.powerSummary({ cpu: { power: 114 }, gpus, power: { zones: { core: 80.2 }, psu: 245.5 } });
+  assert.equal(psu.total, 245.5);
+  assert.equal(psu.source, "psu");
+  assert.ok(psu.rows.some(r => r.label === "CPU cores" && r.watts === 80.2));
+
+  const laptop = model.powerSummary({ cpu: { power: 8 }, gpus: [{ id: "0000:01:00.0", asleep: true }],
+    battery: { present: true, status: "Discharging", power: 14.2, acOnline: false }, power: { zones: { psys: 12 } } });
+  assert.equal(laptop.total, 14.2, "the battery's draw beats RAPL's platform zone");
+  assert.equal(laptop.acOnline, false);
+  assert.ok(!laptop.rows.some(r => r.id === "battery"), "the total is not repeated as a row");
+  const charging = model.powerSummary({ cpu: { power: 8 }, battery: { present: true, status: "Charging", power: 40, acOnline: true } });
+  assert.equal(charging.rows.find(r => r.id === "battery").detail, "charging");
+  assert.equal(charging.source, "estimate");
+  assert.deepEqual(plain(laptop.rows.find(r => r.detail === "asleep")), { id: "gpu:0000:01:00.0", label: "GPU", watts: null, detail: "asleep" });
+
+  const none = model.powerSummary({ cpu: {}, gpus: [], power: {} });
+  assert.equal(none.total, null);
+  assert.deepEqual(plain(model.wattsParts(null)), { value: "—", unit: "" });
+  assert.deepEqual(plain(model.wattsParts(8.25)), { value: "8.3", unit: "W" });
+});

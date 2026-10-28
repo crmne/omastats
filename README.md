@@ -2,7 +2,7 @@
 
 A system monitor for the [Omarchy](https://omarchy.org) bar, in the spirit of
 Bjango's [iStat Menus](https://bjango.com/mac/istatmenus/): CPU, GPU, memory,
-disk, network, temperatures, fans and battery stats at a glance. Compact readouts with
+disk, network, temperatures, fans, power and battery stats at a glance. Compact readouts with
 live mini graphs sit in the bar; clicking one opens a panel with history graphs,
 ring gauges, sensors and the top processes, one tab per module. Everything it
 shows, in the bar and in the panel, is configurable from inside the panel.
@@ -23,7 +23,8 @@ OmaStats is an independent project and is not affiliated with Bjango.
 | Disks   | per disk: read/write history and rates, space used | Internal, external and network volumes; click one for its drive's activity, latency, queue and processes; I/O pressure; problems that slow a drive down, each with a Fix button |
 | Network | glyph · up/down history · rates     | Upload/download, interfaces, public and local IPs, traffic per process |
 | Sensors | any temperatures and fans you pick  | CPU, GPU and fan rings, every temperature and fan, GPUs included      |
-| Battery | glyph by level · %                  | Charge and health rings, charge history, power, cycles, peripherals   |
+| Battery | glyph by level · %                  | Opens the Power tab                                                   |
+| Power   | *(tab only)*                        | Total draw and its history, CPU package and RAPL zones, each GPU, the power supply; charge and health rings, charge history, cycles and peripherals when there is a battery |
 
 Battery and GPU only appear when the hardware exists. A machine with more than
 one GPU gets a readout per card, each tagged in the bar (`NVD`, `AMD`, `INT`);
@@ -64,6 +65,17 @@ reports the package power (PPT), so that reading moves from the Radeon card to
 the CPU, where it belongs. Some Ryzen 7000 and 9000 drivers report it in
 milliwatts instead of microwatts (`sensors` shows "157 mW"); OmaStats corrects
 for that.
+
+The Power tab, which took the Battery tab's place in 1.8 (saved tab lists that
+name `battery` show it), gathers every power reading the machine offers: CPU
+package power, the RAPL zones beside it (cores, integrated graphics, memory,
+and Intel's platform zone) when they are readable, each discrete GPU, and the
+power supply's output when it reports one over USB (Corsair's `corsairpsu`
+driver). Its headline total is measured when something measures the whole
+machine: the power supply, the battery a laptop runs on, or the platform zone,
+in that order. Otherwise it is the CPU package plus the discrete GPUs, and is
+labelled as such, since fans, drives and the rest of the board are not
+counted. A laptop's battery cards follow below.
 
 Memory pressure is the share of the last ten seconds in which some task was
 waiting for memory (reclaim, swap-in, decompression), from
@@ -218,7 +230,7 @@ Setup → Plugins:
 | `modules`                 | `cpu,memory,network,gpu,disks`            | Bar readouts, in order: `cpu gpu memory disks network sensors battery` |
 | `style`                   | `both`                                    | Default look of a readout: `graph`, `ring`, `text`, `both` (graph and figure), or `ring-text` |
 | `cpuStyle` … `batteryStyle` | CPU and GPU `graph`, memory `ring`, disks `graph`, others *(inherit)* | Per-module override of `style`. Until either is saved, the defaults shown apply; a bar whose `style` was saved before 1.8 keeps it for every module |
-| `tabs`                    | `cpu,gpu,memory,disks,network,sensors,battery` | Tabs shown in the panel                              |
+| `tabs`                    | `cpu,gpu,memory,disks,network,sensors,power` | Tabs shown in the panel; `battery` reads as `power`  |
 | `graphWidth`              | `36`                                      | Width of each mini graph in the bar                       |
 | `barLabels`               | `text`                                    | `text` stacks the module's letters vertically (across a vertical bar), `inline` writes the short name horizontally on one line, `icon` uses glyphs |
 | `barDisks`                | *(follows `disksSource`, space used)*     | Disk readouts as `disk:show`, e.g. `all:speed,nvme-Samsung_SSD_970_EVO_Plus_1TB_S4EWNF0M921645X:both`; `show` is `speed`, `used` or `both`, `none` hides them |
@@ -241,7 +253,7 @@ Setup → Plugins:
 | `showVolumes`, `showActivity` | `true`                                | Disks page sections                                       |
 | `showInterfaces`, `showTotals`, `showAddresses` | `true`              | Network page sections                                     |
 | `showTemperatures`, `showFans` | `true`                               | Sensors page sections                                     |
-| `showHistory`, `showDetails`, `showDevices` | `true`                  | Battery page sections                                     |
+| `showHistory`, `showDetails`, `showDevices` | `true`                  | Battery sections of the Power tab                         |
 
 Several instances are allowed, so modules can be spread across the bar:
 

@@ -10,11 +10,14 @@ var MODULES = [
   { id: "disks",   icon: "󰋊", short: "DSK", label: "Disks",   page: "DisksPage.qml",   graph: true,  ring: true },
   { id: "network", icon: "󰛳", short: "NET", label: "Network", page: "NetworkPage.qml", graph: true,  ring: false },
   { id: "sensors", icon: "󰔏", short: "SEN", label: "Sensors", page: "SensorsPage.qml", graph: false, ring: false },
-  { id: "battery", icon: "󰁹", short: "BAT", label: "Battery", page: "BatteryPage.qml", graph: false, ring: true },
+  { id: "battery", icon: "󰁹", short: "BAT", label: "Battery", page: "PowerPage.qml", graph: false, ring: true },
+  // A panel tab only: the battery readout opens it.
+  { id: "power", icon: "󱐋", short: "PWR", label: "Power", page: "PowerPage.qml", graph: false, ring: false, tabOnly: true },
   { id: "settings", icon: "󰒓", short: "SET", label: "Settings", page: "SettingsPage.qml", graph: false }
 ]
 
-var PANEL_TABS = ["cpu", "gpu", "memory", "disks", "network", "sensors", "battery"]
+// Power took Battery's place in 1.8: it carries the battery when there is one.
+var PANEL_TABS = ["cpu", "gpu", "memory", "disks", "network", "sensors", "power"]
 
 // Every user-tunable key with its default. Flat keys keep the entry in
 // shell.json readable and editable from Setup → Plugins as well as from the
@@ -41,7 +44,7 @@ var SETTINGS = {
   utilizationNormalColor: "",
   utilizationWarningColor: "",
   utilizationCriticalColor: "",
-  tabs: "cpu,gpu,memory,disks,network,sensors,battery",
+  tabs: "cpu,gpu,memory,disks,network,sensors,power",
   showProcesses: true,
   showCores: true, showLoad: true,
   showBreakdown: true,
@@ -74,10 +77,11 @@ var PANEL_SECTIONS = {
     { key: "showTemperatures", label: "Temperatures" },
     { key: "showFans", label: "Fans" }
   ],
-  battery: [
-    { key: "showHistory", label: "Charge history" },
-    { key: "showDetails", label: "Details" },
-    { key: "showDevices", label: "Devices" }
+  // Battery sections, offered only on a machine with one.
+  power: [
+    { key: "showHistory", label: "Battery charge history", battery: true },
+    { key: "showDetails", label: "Battery details", battery: true },
+    { key: "showDevices", label: "Devices", battery: true }
   ]
 }
 
@@ -791,7 +795,20 @@ function pageFile(tab) {
 
 // The panel tab that shows a given bar module. Every module has its own.
 function tabFor(module) {
-  return module === "gpuMemory" ? "gpu" : module
+  if (module === "gpuMemory") return "gpu"
+  return module === "battery" ? "power" : module
+}
+
+// Panel tabs from the "tabs" setting. A list saved before 1.8 names
+// battery, whose place Power took.
+function parseTabs(raw) {
+  var tabs = parseModules(raw)
+  var out = []
+  for (var i = 0; i < tabs.length; i++) {
+    var id = tabs[i] === "battery" ? "power" : tabs[i]
+    if (PANEL_TABS.indexOf(id) !== -1 && out.indexOf(id) === -1) out.push(id)
+  }
+  return out
 }
 
 function parseModules(raw) {
@@ -815,11 +832,10 @@ function parseModules(raw) {
 // Module tabs in canonical order, filtered by the "tabs" setting and by the
 // hardware present. Never empty: the CPU tab is the floor.
 function panelTabs(hasBattery, tabsSetting, hasGpu) {
-  var wanted = parseModules(tabsSetting === undefined ? SETTINGS.tabs : tabsSetting)
+  var wanted = parseTabs(tabsSetting === undefined ? SETTINGS.tabs : tabsSetting)
   var out = []
   for (var i = 0; i < PANEL_TABS.length; i++) {
     var id = PANEL_TABS[i]
-    if (id === "battery" && !hasBattery) continue
     if (id === "gpu" && !hasGpu) continue
     if (wanted.indexOf(id) === -1) continue
     out.push(id)
@@ -920,6 +936,73 @@ function freqText(mhz) {
   return m >= 1000 ? (m / 1000).toFixed(2) + " GHz" : Math.round(m) + " MHz"
 }
 
+// ------------------------------------------------------------------ power
+
+// RAPL zones beside the package, in the order the Power page lists them.
+var POWER_ZONES = [
+  { key: "core", label: "CPU cores" },
+  { key: "uncore", label: "CPU graphics" },
+  { key: "dram", label: "Memory" },
+  { key: "psys", label: "Platform" }
+]
+
+function finiteWatts(v) {
+  return v !== null && v !== undefined && v !== "" && isFinite(Number(v)) && Number(v) >= 0
+}
+
+// Every power reading the machine offers, and the best total among them:
+// {rows: [{id, label, watts, detail}], cpu, gpu, total, source, detail}.
+// The total is measured when something measures the whole machine (its
+// power supply, the battery it runs on, or RAPL's platform zone); otherwise
+// it is the CPU package plus the discrete GPUs, and says so.
+function powerSummary(snapshot) {
+  var s = snapshot || {}
+  var cpu = s.cpu || {}
+  var power = s.power || {}
+  var zones = power.zones || {}
+  var battery = s.battery || null
+  var rows = []
+  var cpuWatts = finiteWatts(cpu.power) ? Number(cpu.power) : null
+  if (cpuWatts !== null) rows.push({ id: "cpu", label: "CPU package", watts: cpuWatts, detail: "" })
+  for (var z = 0; z < POWER_ZONES.length; z++) {
+    var zone = POWER_ZONES[z]
+    if (finiteWatts(zones[zone.key])) rows.push({ id: zone.key, label: zone.label, watts: Number(zones[zone.key]), detail: "" })
+  }
+  var gpus = gpuList(s)
+  var gpuWatts = null
+  for (var g = 0; g < gpus.length; g++) {
+    var gpu = gpus[g]
+    // An APU's power is the package's, already counted as the CPU's.
+    if (gpu.integrated) continue
+    if (gpu.asleep) {
+      rows.push({ id: "gpu:" + gpuId(gpu), label: gpuTitle(gpu), watts: null, detail: "asleep" })
+      continue
+    }
+    if (!finiteWatts(gpu.power)) continue
+    rows.push({ id: "gpu:" + gpuId(gpu), label: gpuTitle(gpu), watts: Number(gpu.power), detail: "" })
+    gpuWatts = (gpuWatts || 0) + Number(gpu.power)
+  }
+  var batteryWatts = battery && battery.present && finiteWatts(battery.power) && Number(battery.power) > 0 ? Number(battery.power) : null
+  var status = battery ? String(battery.status || "") : ""
+  // Discharging, the battery's draw is the total, shown above the rows.
+  if (batteryWatts !== null && status === "Charging")
+    rows.push({ id: "battery", label: "Battery", watts: batteryWatts, detail: "charging" })
+  var psu = finiteWatts(power.psu) ? Number(power.psu) : null
+  if (psu !== null) rows.push({ id: "psu", label: "Power supply", watts: psu, detail: "" })
+
+  var total = null, source = "", detail = ""
+  if (psu !== null) { total = psu; source = "psu"; detail = "Measured at the power supply" }
+  else if (batteryWatts !== null && status === "Discharging") { total = batteryWatts; source = "battery"; detail = "Drawn from the battery" }
+  else if (finiteWatts(zones.psys)) { total = Number(zones.psys); source = "psys"; detail = "Platform, measured by RAPL" }
+  else if (cpuWatts !== null || gpuWatts !== null) {
+    total = (cpuWatts || 0) + (gpuWatts || 0)
+    source = "estimate"
+    detail = gpuWatts !== null ? "CPU and GPUs only" : "CPU package only"
+  }
+  return { rows: rows, cpu: cpuWatts, gpu: gpuWatts, total: total, source: source, detail: detail,
+    acOnline: battery && battery.acOnline !== undefined && battery.acOnline !== null ? !!battery.acOnline : null }
+}
+
 // A clock as {value, unit}: "96" MHz, "1.71" GHz.
 function freqParts(mhz) {
   var text = freqText(mhz)
@@ -934,6 +1017,12 @@ function wattsText(watts) {
   var w = Number(watts)
   if (!isFinite(w) || w < 0) return ""
   return (w < 10 ? w.toFixed(1) : String(Math.round(w))) + " W"
+}
+
+// A power reading as {value, unit}, or a dash when there is none.
+function wattsParts(watts) {
+  var text = wattsText(watts)
+  return text ? { value: text.slice(0, -2), unit: "W" } : { value: "—", unit: "" }
 }
 
 // Bar-width-friendly clock, shown instead of a load figure by a card that
@@ -1187,7 +1276,8 @@ function emptyHistory() {
     cpuUser: [], cpuSystem: [], cpuTotal: [], gpu: [], gpus: {}, gpuMemory: { gpus: {} },
     memUsed: [], memPressure: [],
     netRx: [], netTx: [], diskRead: [], diskWrite: [], disks: {},
-    battery: [], batteryCharging: []
+    battery: [], batteryCharging: [],
+    powerCpu: [], powerGpu: [], powerTotal: []
   }
 }
 

@@ -517,6 +517,60 @@ class PowerSource:
         return None
 
 
+# hwmon drivers of power supplies that report their output over USB.
+PSU_HWMON = ("corsairpsu",)
+
+
+class PowerSampler:
+    """Power readings beyond the CPU package and each GPU: the RAPL zones
+    inside and beside the package (core, uncore, dram, psys), and the whole
+    machine's draw when its power supply reports it."""
+
+    def __init__(self) -> None:
+        self.zones: list[tuple[str, str, int]] = []
+        self.prev: tuple[list[int | None], float] | None = None
+        for zone in sorted(list_dir("/sys/class/powercap")):
+            base = f"/sys/class/powercap/{zone}"
+            name = read_text(f"{base}/name")
+            # Packages are the CPU's own reading; the energy counters are
+            # root-only unless a udev rule opens them.
+            if not name or name.startswith("package") or not os.access(f"{base}/energy_uj", os.R_OK):
+                continue
+            self.zones.append((name.split("-")[0], f"{base}/energy_uj", read_int(f"{base}/max_energy_range_uj", 0) or 0))
+        self.psu = self._find_psu()
+
+    @staticmethod
+    def _find_psu() -> str | None:
+        """The power supply's input labelled "power total", or its first."""
+        for hw in sorted(list_dir("/sys/class/hwmon"), key=lambda n: int(n[5:]) if n[5:].isdigit() else 0):
+            path = f"/sys/class/hwmon/{hw}"
+            if read_text(f"{path}/name") not in PSU_HWMON:
+                continue
+            inputs = sorted(e for e in list_dir(path) if e.startswith("power") and e.endswith("_input"))
+            total = [e for e in inputs if read_text(f"{path}/{e[:-6]}_label").lower() == "power total"]
+            if total or inputs:
+                return f"{path}/{(total or inputs)[0]}"
+        return None
+
+    def sample(self) -> dict:
+        now = time.monotonic()
+        energy = [read_int(path) for _, path, _ in self.zones]
+        zones: dict[str, float] = {}
+        if self.prev is not None and now > self.prev[1]:
+            seconds = now - self.prev[1]
+            # Zones sharing a kind (one per package) add up.
+            for (kind, _, limit), value, before in zip(self.zones, energy, self.prev[0]):
+                if value is None or before is None:
+                    continue
+                zones[kind] = zones.get(kind, 0.0) + energy_delta(value, before, limit) / 1e6 / seconds
+        self.prev = (energy, now)
+        raw = read_float(self.psu) if self.psu else None
+        return {
+            "zones": {kind: round(watts, 1) for kind, watts in zones.items()},
+            "psu": round(raw / 1e6, 1) if raw is not None else None,
+        }
+
+
 # ---------------------------------------------------------------------- Runtime PM
 
 
@@ -2456,6 +2510,7 @@ def main() -> int:
 
     cpu = CpuSampler()
     gpu = GpuSampler()
+    power = PowerSampler()
     disks = DiskSampler()
     net = NetworkSampler()
     sensors = SensorSampler()
@@ -2567,6 +2622,7 @@ def main() -> int:
         for key, fn in (
             ("cpu", cpu.sample),
             ("gpus", gpu.sample_all),
+            ("power", power.sample),
             ("mem", sample_memory),
             ("disks", lambda: disks.sample(elapsed, now)),
             ("net", lambda: net.sample(elapsed, now, detail > 0)),

@@ -224,5 +224,46 @@ class CpuPowerTests(unittest.TestCase):
         self.assertEqual(delta(200, 9_800, 0), 0)
 
 
+class PowerSamplerTests(unittest.TestCase):
+    def test_zones_add_up_by_kind_and_the_psu_reports_its_total(self):
+        files = {
+            "/sys/class/powercap/intel-rapl:0/name": "package-0",
+            "/sys/class/powercap/intel-rapl:0:0/name": "core",
+            "/sys/class/powercap/intel-rapl:1:0/name": "core",
+            "/sys/class/powercap/intel-rapl:0:1/name": "dram",
+            "/sys/class/hwmon/hwmon4/name": "corsairpsu",
+            "/sys/class/hwmon/hwmon4/power1_label": "power total",
+            "/sys/class/hwmon/hwmon4/power2_label": "power 12v",
+        }
+        energy = {"intel-rapl:0:0": 1_000_000, "intel-rapl:1:0": 2_000_000, "intel-rapl:0:1": 0}
+        dirs = {
+            "/sys/class/powercap": ["intel-rapl:0", "intel-rapl:0:0", "intel-rapl:1:0", "intel-rapl:0:1"],
+            "/sys/class/hwmon": ["hwmon4"],
+            "/sys/class/hwmon/hwmon4": ["name", "power2_input", "power1_input", "power1_label", "power2_label"],
+        }
+        clock = [100.0]
+
+        def read_int(path, default=None):
+            zone = path.split("/")[4]
+            return energy.get(zone, default)
+
+        with patch.dict(NAMESPACE, {
+            "list_dir": lambda path: dirs.get(path, []),
+            "read_text": lambda path: files.get(path, ""),
+            "read_int": read_int,
+            "read_float": lambda path: 245_500_000.0 if path.endswith("power1_input") else 9.0,
+        }), patch("os.access", return_value=True), patch("time.monotonic", lambda: clock[0]):
+            sampler = NAMESPACE["PowerSampler"]()
+            self.assertEqual(sampler.psu, "/sys/class/hwmon/hwmon4/power1_input")
+            first = sampler.sample()
+            self.assertEqual(first["zones"], {}, "rates need two readings")
+            self.assertEqual(first["psu"], 245.5)
+            clock[0] = 102.0
+            energy["intel-rapl:0:0"] += 20_000_000
+            energy["intel-rapl:1:0"] += 10_000_000
+            energy["intel-rapl:0:1"] += 4_000_000
+            self.assertEqual(sampler.sample()["zones"], {"core": 15.0, "dram": 2.0})
+
+
 if __name__ == "__main__":
     unittest.main()

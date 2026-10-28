@@ -47,6 +47,7 @@ Panel {
     for (var i = 0; i < configuredModules.length; i++) {
       var id = configuredModules[i]
       if (id === "battery" && !hasBattery) continue
+      if (Model.moduleDef(id).tabOnly) continue
       if (id === "gpu") {
         for (var g = 0; g < gpuReadouts.length; g++) {
           out.push({

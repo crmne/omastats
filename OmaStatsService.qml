@@ -62,6 +62,7 @@ Item {
     var gpu = data.gpu
     var gpuList = Model.gpuList(data)
     var battery = data.battery
+    var power = Model.powerSummary(data)
     var memPercent = mem.total > 0 ? mem.used / mem.total * 100 : 0
     var perDisk = disks.perDisk || {}
     // One utilisation series per card, keyed by PCI address, so a readout
@@ -102,7 +103,10 @@ Item {
       diskWrite: Model.pushHistory(h.diskWrite, disks.write, n),
       disks: diskHistory,
       battery: Model.pushHistory(h.battery, battery && battery.present ? battery.percent : 0, n),
-      batteryCharging: Model.pushHistory(h.batteryCharging, battery && battery.status === "Charging" ? 1 : 0, n)
+      batteryCharging: Model.pushHistory(h.batteryCharging, battery && battery.status === "Charging" ? 1 : 0, n),
+      powerCpu: Model.pushNullableHistory(h.powerCpu, power.cpu, n),
+      powerGpu: Model.pushNullableHistory(h.powerGpu, power.gpu, n),
+      powerTotal: Model.pushNullableHistory(h.powerTotal, power.total, n)
     }
     root.snapshot = data
     root.seq = Number(data.seq) || 0

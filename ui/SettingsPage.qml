@@ -24,15 +24,14 @@ Column {
   readonly property bool hasGpu: !!(service && service.hasGpu)
   readonly property bool hasBattery: !!(service && service.hasBattery)
   readonly property var barModules: Model.parseModules(Model.settingValue(settings, "modules"))
-  readonly property var tabModules: Model.parseModules(Model.settingValue(settings, "tabs"))
+  readonly property var tabModules: Model.parseTabs(Model.settingValue(settings, "tabs"))
   readonly property var availableModules: {
     var out = []
     for (var i = 0; i < Model.MODULES.length; i++) {
       var id = Model.MODULES[i].id
-      if (id === "settings") continue
+      if (id === "settings" || Model.MODULES[i].tabOnly) continue
       if (id === "gpu" && !hasGpu) continue
       if (id === "battery" && !hasBattery) continue
-      if (id === "gpu" && !hasGpu) continue
       out.push(id)
     }
     return out
@@ -48,7 +47,6 @@ Column {
     var out = []
     for (var i = 0; i < Model.PANEL_TABS.length; i++) {
       var id = Model.PANEL_TABS[i]
-      if (id === "battery" && !hasBattery) continue
       if (id === "gpu" && !hasGpu) continue
       out.push(id)
     }
@@ -390,7 +388,7 @@ Column {
         readonly property string pageId: String(root.pages[index] || "")
         readonly property var def: Model.moduleDef(pageId)
         readonly property bool enabled: root.tabModules.indexOf(pageId) !== -1
-        readonly property var sections: Model.PANEL_SECTIONS[pageId] || []
+        readonly property var sections: (Model.PANEL_SECTIONS[pageId] || []).filter(function(section) { return !section.battery || root.hasBattery })
         readonly property var choices: Model.PANEL_CHOICES[pageId] || []
 
         width: parent.width

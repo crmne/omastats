@@ -5,7 +5,7 @@
   "version": "1.7.0",
   "author": "Carmine Paolino",
   "license": "MIT",
-  "description": "System monitor for the Omarchy bar: CPU, GPU, memory, disk, network, temperature, fan and battery stats with live graphs and a detailed panel. An iStat Menus-style activity monitor showing the machine's vital signs, configurable from inside the panel.",
+  "description": "System monitor for the Omarchy bar: CPU, GPU, memory, disk, network, temperature, fan, power and battery stats with live graphs and a detailed panel. An iStat Menus-style activity monitor showing the machine's vital signs, configurable from inside the panel.",
   "kinds": [
     "service",
     "bar-widget"
@@ -17,7 +17,7 @@
   },
   "barWidget": {
     "displayName": "OmaStats",
-    "description": "System monitor readouts with live mini graphs: CPU, GPU, memory, disk, network, temperature, fans and battery, each opening an iStat Menus-style panel with history graphs, ring gauges, sensors and top processes.",
+    "description": "System monitor readouts with live mini graphs: CPU, GPU, memory, disk, network, temperature, fans and battery, each opening an iStat Menus-style panel with history graphs, ring gauges, sensors, power and top processes.",
     "category": "System",
     "aliases": [
       "omastats",
@@ -34,6 +34,7 @@
       "sensors",
       "temperature",
       "fans",
+      "power",
       "battery",
       "istat"
     ],
@@ -56,7 +57,7 @@
       "utilizationNormalColor": "",
       "utilizationWarningColor": "",
       "utilizationCriticalColor": "",
-      "tabs": "cpu,gpu,memory,disks,network,sensors,battery",
+      "tabs": "cpu,gpu,memory,disks,network,sensors,power",
       "showProcesses": true,
       "disksSource": "all",
       "barDisks": "",
@@ -77,8 +78,8 @@
         "key": "tabs",
         "type": "string",
         "label": "Panel tabs",
-        "description": "Comma-separated tabs shown in the panel: cpu, gpu, memory, disks, network, sensors, battery.",
-        "defaultValue": "cpu,gpu,memory,disks,network,sensors,battery"
+        "description": "Comma-separated tabs shown in the panel: cpu, gpu, memory, disks, network, sensors, power. Power carries the battery; a list naming battery reads as power.",
+        "defaultValue": "cpu,gpu,memory,disks,network,sensors,power"
       },
       {
         "key": "style",

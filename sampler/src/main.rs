@@ -29,6 +29,7 @@ mod gpu;
 mod mem;
 mod net;
 mod pm;
+mod power;
 mod procs;
 mod sensors;
 mod util;
@@ -169,6 +170,7 @@ fn main() {
     let mut disks = disks::DiskSampler::new();
     let mut net = net::NetworkSampler::new();
     let mut sensors = sensors::SensorSampler::new();
+    let mut power = power::PowerSampler::new();
     let mut procs = procs::ProcessSampler::new();
 
     // Prime the delta-based samplers so the first line already carries rates.
@@ -317,6 +319,7 @@ fn main() {
         payload["net"] = network;
         payload["sensors"] = sensors_cache.clone();
         payload["battery"] = battery_cache.clone();
+        payload["power"] = power.sample();
         payload["procs"] = procs_cache.clone();
 
         let line = match bounded_output_line(&payload, seq, now, elapsed, current_interval) {
