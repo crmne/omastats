@@ -180,8 +180,79 @@ function gpuMemoryPercent(gpu) {
 
 // ---------------------------------------------------------------- sensors
 
+function finiteValue(v) {
+  return v !== null && v !== undefined && isFinite(Number(v))
+}
+
+// The cards Sensors shows: the discrete ones, or the integrated one on a
+// machine with nothing else. On a desktop with an APU the boot display is
+// often the iGPU, which used to stand in for "GPU".
+function sensorGpus(snapshot) {
+  var all = gpuList(snapshot)
+  var discrete = []
+  for (var i = 0; i < all.length; i++) if (!all[i].integrated) discrete.push(all[i])
+  return discrete.length > 0 ? discrete : all
+}
+
+// The card behind the single "GPU" temperature: the first in sensorGpus
+// that reports one.
+function primarySensorGpu(snapshot) {
+  var list = sensorGpus(snapshot)
+  for (var i = 0; i < list.length; i++) if (finiteValue(list[i].temp)) return list[i]
+  return null
+}
+
+// Every temperature: hwmon's, plus NVIDIA cards, which have no hwmon chip
+// under the proprietary driver and report through nvidia-smi.
+function sensorTemps(snapshot) {
+  var s = snapshot || {}
+  var sensors = s.sensors || {}
+  var out = Array.isArray(sensors.temps) ? sensors.temps.slice() : []
+  var gpus = gpuList(s)
+  for (var i = 0; i < gpus.length; i++) {
+    var gpu = gpus[i]
+    if (String(gpu.vendor) !== "nvidia" || !finiteValue(gpu.temp)) continue
+    out.push({ chip: "GPU", id: "gpu:" + gpuId(gpu), label: gpuTitle(gpu), title: gpuTitle(gpu), value: Number(gpu.temp), max: 0 })
+  }
+  return out
+}
+
+// Every fan: hwmon's in rpm, plus NVIDIA cards' in percent of full speed.
+function sensorFans(snapshot) {
+  var s = snapshot || {}
+  var sensors = s.sensors || {}
+  var out = Array.isArray(sensors.fans) ? sensors.fans.slice() : []
+  var gpus = gpuList(s)
+  for (var i = 0; i < gpus.length; i++) {
+    var gpu = gpus[i]
+    if (!finiteValue(gpu.fan)) continue
+    out.push({ chip: "GPU", id: "gpufan:" + gpuId(gpu), label: gpuTitle(gpu) + " fan", percent: Number(gpu.fan) })
+  }
+  return out
+}
+
+function fanSpinning(fan) {
+  return fan && (num(fan.rpm) > 0 || num(fan.percent) > 0)
+}
+
+// "1200 rpm", "30 %" or "Off", as {value, unit}.
+function fanParts(fan) {
+  if (fan && finiteValue(fan.percent)) {
+    return num(fan.percent) > 0 ? { value: String(Math.round(fan.percent)), unit: "%" } : { value: "Off", unit: "" }
+  }
+  var rpm = num(fan ? fan.rpm : 0)
+  return rpm > 0 ? { value: String(Math.round(rpm)), unit: "rpm" } : { value: "Off", unit: "" }
+}
+
+// How fast a fan spins, from 0 to 1: rpm against 2400, percent as given.
+function fanFraction(fan) {
+  if (fan && finiteValue(fan.percent)) return clamp(num(fan.percent) / 100, 0, 1)
+  return Math.min(1, num(fan ? fan.rpm : 0) / 2400)
+}
+
 // Friendly row label for a hwmon temperature entry.
 function sensorLabel(temp) {
+  if (temp.title) return String(temp.title)
   var chip = String(temp.chip || "")
   var label = String(temp.label || "")
   if (!label || label === chip) return chip
@@ -194,14 +265,14 @@ function sensorLabel(temp) {
 function sensorOptions(snapshot) {
   var s = snapshot || {}
   var cpu = s.cpu || {}
-  var gpu = s.gpu || null
+  var gpu = primarySensorGpu(s)
   var sensors = s.sensors || {}
   var out = []
   if (isFinite(Number(cpu.temp)) && cpu.temp !== null) out.push({ value: "cpu", label: "CPU temperature", kind: "temp" })
   var gpus = gpuList(s)
-  var gpuTemp = gpu && gpu.temp !== null && isFinite(Number(gpu.temp)) ? gpu.temp : sensors.gpuTemp
+  var gpuTemp = gpu ? gpu.temp : sensors.gpuTemp
   if (gpuTemp !== null && gpuTemp !== undefined && isFinite(Number(gpuTemp))) {
-    out.push({ value: "gpu", label: gpus.length > 1 ? "GPU temperature (first)" : "GPU temperature", kind: "temp" })
+    out.push({ value: "gpu", label: gpus.length > 1 && gpu ? "GPU temperature (" + gpuTitle(gpu) + ")" : "GPU temperature", kind: "temp" })
   }
   if (gpus.length > 1) {
     for (var g = 0; g < gpus.length; g++) {
@@ -211,7 +282,7 @@ function sensorOptions(snapshot) {
   }
   var temps = Array.isArray(sensors.temps) ? sensors.temps : []
   for (var i = 0; i < temps.length; i++) out.push({ value: String(temps[i].id), label: sensorLabel(temps[i]), kind: "temp" })
-  var fans = Array.isArray(sensors.fans) ? sensors.fans : []
+  var fans = sensorFans(s)
   for (var j = 0; j < fans.length; j++) out.push({ value: String(fans[j].id), label: String(fans[j].label || "Fan"), kind: "fan" })
   return out
 }
@@ -220,7 +291,7 @@ function sensorOptions(snapshot) {
 function sensorReading(snapshot, id, unit) {
   var s = snapshot || {}
   var cpu = s.cpu || {}
-  var gpu = s.gpu || null
+  var gpu = primarySensorGpu(s)
   var sensors = s.sensors || {}
   if (id === "cpu") {
     if (!(isFinite(Number(cpu.temp)) && cpu.temp !== null)) return null
@@ -236,7 +307,7 @@ function sensorReading(snapshot, id, unit) {
     return { icon: "󰢮", short: gpuShort(picked), label: gpuTitle(picked), text: pt.value, unit: pt.unit, kind: "temp", celsius: picked.temp }
   }
   if (id === "gpu") {
-    var gpuTemp = gpu && gpu.temp !== null && isFinite(Number(gpu.temp)) ? gpu.temp : sensors.gpuTemp
+    var gpuTemp = gpu ? gpu.temp : sensors.gpuTemp
     if (gpuTemp === null || gpuTemp === undefined || !isFinite(Number(gpuTemp))) return null
     var g = tempParts(gpuTemp, unit)
     return { icon: "󰢮", short: "GPU", label: "GPU", text: g.value, unit: g.unit, kind: "temp", celsius: gpuTemp }
@@ -248,11 +319,11 @@ function sensorReading(snapshot, id, unit) {
       return { icon: "󰔏", short: "TMP", label: sensorLabel(temps[i]), text: t.value, unit: t.unit, kind: "temp", celsius: temps[i].value }
     }
   }
-  var fans = Array.isArray(sensors.fans) ? sensors.fans : []
+  var fans = sensorFans(s)
   for (var j = 0; j < fans.length; j++) {
     if (String(fans[j].id) === id) {
-      var rpm = num(fans[j].rpm)
-      return { icon: "󰈐", short: "FAN", label: String(fans[j].label || "Fan"), text: rpm > 0 ? String(Math.round(rpm)) : "Off", unit: rpm > 0 ? "rpm" : "", kind: "fan", rpm: rpm }
+      var f = fanParts(fans[j])
+      return { icon: "󰈐", short: "FAN", label: String(fans[j].label || "Fan"), text: f.value, unit: f.unit, kind: "fan", rpm: num(fans[j].rpm) }
     }
   }
   return null

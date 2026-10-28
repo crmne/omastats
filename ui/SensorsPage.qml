@@ -23,23 +23,31 @@ Column {
   readonly property color danger: service ? service.danger : Commons.Color.urgent
 
   readonly property var cpu: snap.cpu || ({})
-  readonly property var gpu: snap.gpu || null
   readonly property var sensors: snap.sensors || ({})
-  readonly property var temps: sortedTemps(Array.isArray(sensors.temps) ? sensors.temps : [])
-  readonly property var fans: Array.isArray(sensors.fans) ? sensors.fans : []
+  readonly property var temps: sortedTemps(Model.sensorTemps(snap))
+  readonly property var fans: Model.sensorFans(snap)
   readonly property real cpuTemp: Model.num(cpu.temp, NaN)
-  readonly property real gpuTemp: gpu && gpu.temp !== null && isFinite(Number(gpu.temp))
-    ? Number(gpu.temp)
-    : Model.num(sensors.gpuTemp, NaN)
+  // One ring per discrete card; an integrated one only when it is alone.
+  readonly property var gpuRings: {
+    var out = []
+    var list = Model.sensorGpus(snap)
+    for (var i = 0; i < list.length; i++) if (Model.finiteValue(list[i].temp)) out.push(list[i])
+    if (out.length === 0 && Model.finiteValue(sensors.gpuTemp)) out.push({ temp: sensors.gpuTemp, name: "GPU" })
+    return out
+  }
   readonly property var fanSummary: {
+    // The average is of the fans that report rpm; NVIDIA's percent cannot
+    // join it, but a spinning one still counts as on.
     var active = 0
+    var rpmFans = 0
     var sum = 0
-    var peak = 0
     for (var i = 0; i < fans.length; i++) {
+      if (!Model.fanSpinning(fans[i])) continue
+      active += 1
       var rpm = Model.num(fans[i].rpm)
-      if (rpm > 0) { active += 1; sum += rpm; peak = Math.max(peak, rpm) }
+      if (rpm > 0) { rpmFans += 1; sum += rpm }
     }
-    return { active: active, average: active > 0 ? sum / active : 0, peak: peak }
+    return { active: active, average: rpmFans > 0 ? sum / rpmFans : 0 }
   }
 
   function chipRank(chip) {
@@ -103,18 +111,24 @@ Column {
           size: Style.space(84)
         }
 
-        RingGauge {
-          visible: isFinite(root.gpuTemp)
-          value: root.fraction(root.gpuTemp, 100)
-          color: root.tempColor(root.gpuTemp, 90)
-          foreground: root.foreground
-          fontFamily: root.fontFamily
-          topText: "GPU"
-          valueText: Model.tempParts(root.gpuTemp, root.temperatureUnit).value
-          unitText: "°"
-          subText: root.gpu ? Model.freqText(root.gpu.mhz) : ""
-          valueSize: Style.font.heading
-          size: Style.space(84)
+        Repeater {
+          model: root.gpuRings.length
+
+          delegate: RingGauge {
+            required property int index
+            readonly property var gpu: root.gpuRings[index] || ({})
+            readonly property real celsius: Model.num(gpu.temp, NaN)
+            value: root.fraction(celsius, 100)
+            color: root.tempColor(celsius, 90)
+            foreground: root.foreground
+            fontFamily: root.fontFamily
+            topText: root.gpuRings.length > 1 ? Model.gpuShort(gpu) : "GPU"
+            valueText: Model.tempParts(celsius, root.temperatureUnit).value
+            unitText: "°"
+            subText: Model.freqText(gpu.mhz)
+            valueSize: Style.font.heading
+            size: Style.space(84)
+          }
         }
 
         RingGauge {
@@ -124,10 +138,10 @@ Column {
           foreground: root.foreground
           fontFamily: root.fontFamily
           topText: "Fans"
-          valueText: root.fanSummary.active > 0 ? String(Math.round(root.fanSummary.average)) : "Off"
-          unitText: root.fanSummary.active > 0 ? "rpm" : ""
+          valueText: root.fanSummary.average > 0 ? String(Math.round(root.fanSummary.average)) : (root.fanSummary.active > 0 ? "On" : "Off")
+          unitText: root.fanSummary.average > 0 ? "rpm" : ""
           subText: root.fanSummary.active > 0 ? root.fanSummary.active + " of " + root.fans.length + " on" : ""
-          valueSize: root.fanSummary.active > 0 ? Style.font.heading : Style.font.title
+          valueSize: root.fanSummary.average > 0 ? Style.font.heading : Style.font.title
           size: Style.space(84)
         }
       }
@@ -135,7 +149,7 @@ Column {
 
     Text {
       textFormat: Text.PlainText
-      visible: !isFinite(root.cpuTemp) && !isFinite(root.gpuTemp) && root.fans.length === 0
+      visible: !isFinite(root.cpuTemp) && root.gpuRings.length === 0 && root.fans.length === 0
       width: parent.width
       horizontalAlignment: Text.AlignHCenter
       text: "No hardware sensors found"
@@ -191,17 +205,17 @@ Column {
       delegate: StatRow {
         required property int index
         readonly property var modelData: root.fans[index] || ({})
-        readonly property real rpm: Model.num(modelData.rpm)
+        readonly property var parts: Model.fanParts(modelData)
         label: String(modelData.label || "Fan")
-        value: rpm > 0 ? String(Math.round(rpm)) : "Off"
-        unit: rpm > 0 ? "rpm" : ""
+        value: parts.value
+        unit: parts.unit
         boldValue: false
-        labelOpacity: rpm > 0 ? 0.85 : 0.5
+        labelOpacity: Model.fanSpinning(modelData) ? 0.85 : 0.5
         foreground: root.foreground
         fontFamily: root.fontFamily
         trailing: Component {
           MiniRing {
-            value: Math.min(1, rpm / 2400)
+            value: Model.fanFraction(modelData)
             color: root.s2
             foreground: root.foreground
             size: Style.space(14)

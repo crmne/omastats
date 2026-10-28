@@ -3,7 +3,8 @@ import qs.Commons
 import qs.Commons as Commons
 import "../Model.js" as Model
 
-// The GPU's own page: utilisation history, memory and power. It used to be a
+// The GPU's own page: utilisation history, memory and power. Fans and
+// temperatures live on Sensors with every other one. It used to be a
 // card at the foot of the CPU page, which left it sharing that page's
 // scroll position and section toggles.
 Column {
@@ -100,15 +101,6 @@ Column {
         label: "Power"
         value: gpuCard.gpu && gpuCard.gpu.power !== null ? String(Math.round(gpuCard.gpu.power)) : ""
         unit: "W"
-        foreground: root.foreground
-        fontFamily: root.fontFamily
-      }
-
-      StatRow {
-        visible: !!(gpuCard.gpu && isFinite(Number(gpuCard.gpu.fan)) && gpuCard.gpu.fan !== null)
-        label: "Fan"
-        value: gpuCard.gpu && gpuCard.gpu.fan !== null ? String(Math.round(gpuCard.gpu.fan)) : ""
-        unit: "%"
         foreground: root.foreground
         fontFamily: root.fontFamily
       }

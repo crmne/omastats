@@ -405,3 +405,29 @@ test("checks are listed for one drive or for all", () => {
   assert.deepEqual(plain(model.driveChecks(volumes, "sdd")).map(e => e.volume.mount), ["/stick"]);
   assert.deepEqual(plain(model.driveChecks(volumes, "sda")), []);
 });
+
+test("Sensors speaks for the discrete GPU and lists NVIDIA temperature and fan", () => {
+  const gpus = [
+    { id: "0000:11:00.0", integrated: true, name: "Radeon 610M", vendor: "amd", temp: 49 },
+    { id: "0000:01:00.0", name: "NVIDIA GeForce RTX 3090", vendor: "nvidia", temp: 53, fan: 30 },
+  ];
+  const snapshot = { gpu: gpus[0], gpus, sensors: { temps: [{ id: "amdgpu/temp1", chip: "GPU", label: "edge", value: 49 }],
+    fans: [{ id: "nct6687/fan1", label: "CPU Fan", rpm: 1200 }] } };
+  assert.deepEqual(plain(model.sensorGpus(snapshot)), [gpus[1]]);
+  assert.equal(model.sensorReading(snapshot, "gpu", "Celsius").celsius, 53);
+  const temps = model.sensorTemps(snapshot);
+  assert.equal(temps.length, 2, "the AMD card's hwmon reading is not repeated");
+  assert.equal(model.sensorLabel(temps[1]), "NVIDIA RTX 3090");
+  const fans = model.sensorFans(snapshot);
+  assert.deepEqual(plain(fans.map(f => model.fanParts(f))), [{ value: "1200", unit: "rpm" }, { value: "30", unit: "%" }]);
+  assert.equal(model.fanFraction(fans[1]), 0.3);
+  assert.equal(model.sensorReading(snapshot, "gpufan:0000:01:00.0", "Celsius").text, "30");
+  assert.ok(model.sensorOptions(snapshot).some(o => o.value === "gpufan:0000:01:00.0"));
+});
+
+test("an integrated GPU still stands for GPU when it is the only one", () => {
+  const gpus = [{ id: "0000:00:02.0", integrated: true, name: "Intel UHD", vendor: "intel", temp: 44 }];
+  assert.deepEqual(plain(model.sensorGpus({ gpus })), gpus);
+  assert.equal(model.sensorReading({ gpus }, "gpu", "Celsius").celsius, 44);
+  assert.equal(model.fanParts({ percent: 0 }).value, "Off");
+});

@@ -168,6 +168,7 @@ WidgetButton {
 
   function fanSummary() {
     var fans = Array.isArray(sensors.fans) ? sensors.fans : []
+    // Board and AMD fans in rpm; NVIDIA's percent cannot join the average.
     var active = 0
     var sum = 0
     for (var i = 0; i < fans.length; i++) {
@@ -212,7 +213,7 @@ WidgetButton {
       case "sensors":
         for (var i = 0; i < sensorReadings.length; i++) {
           var r = sensorReadings[i]
-          parts.push(r.label + " " + (r.kind === "temp" ? Model.tempLongText(r.celsius, temperatureUnit) : (r.rpm > 0 ? Math.round(r.rpm) + " rpm" : "off")))
+          parts.push(r.label + " " + (r.kind === "temp" ? Model.tempLongText(r.celsius, temperatureUnit) : (r.text === "Off" ? "off" : r.text + " " + r.unit)))
         }
         var fans = fanSummary()
         if (fans && parts.length < 3) parts.push(fans)

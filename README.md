@@ -22,7 +22,7 @@ OmaStats is an independent project and is not affiliated with Bjango.
 | Memory  | glyph · used history · %            | Swap, memory and memory pressure rings, breakdown, processes          |
 | Disks   | per disk: read/write history and rates, space used | Internal, external and network volumes; click one for its drive's activity, latency, queue and processes; I/O pressure; problems that slow a drive down, each with a Fix button |
 | Network | glyph · up/down history · rates     | Upload/download, interfaces, public and local IPs, traffic per process |
-| Sensors | any temperatures and fans you pick  | CPU/GPU/fan rings, every hwmon temperature and fan                    |
+| Sensors | any temperatures and fans you pick  | CPU, GPU and fan rings, every temperature and fan, GPUs included      |
 | Battery | glyph by level · %                  | Charge and health rings, charge history, power, cycles, peripherals   |
 
 Battery and GPU only appear when the hardware exists. A machine with more than
@@ -41,6 +41,12 @@ laptops on battery), OmaStats asks it once per idle period, never while it is
 asleep, and shows it as Off. Cards that never suspend stream a reading every
 second as before. NVIDIA cards remain visible when `nvidia-smi` is unavailable. Existing 1.0 tab settings
 keep access to GPU details when upgrading; GPU can then be hidden separately.
+
+Sensors shows each discrete GPU's temperature and fan beside the board's, and
+an integrated GPU only on a machine without a discrete one, so a desktop
+whose boot display is its APU no longer reports the APU as "GPU". NVIDIA's
+proprietary driver has no hwmon chip, so its temperature and fan come from
+`nvidia-smi`, the fan as a percentage of full speed rather than rpm.
 
 Each GPU card lists the processes using it, with how busy each keeps the card's
 busiest engine and how much memory it holds. AMD, Intel and other DRM drivers
@@ -214,7 +220,7 @@ Setup → Plugins:
 | `barLabels`               | `text`                                    | `text` stacks the module's letters vertically (across a vertical bar), `inline` writes the short name horizontally on one line, `icon` uses glyphs |
 | `barDisks`                | *(follows `disksSource`)*                 | Disk readouts as `disk:show`, e.g. `all:speed,nvme-Samsung_SSD_970_EVO_Plus_1TB_S4EWNF0M921645X:both`; `show` is `speed`, `used` or `both`, `none` hides them |
 | `disksSource`             | `all`                                     | Disks page activity when the panel opens: `all` or a disk's by-id name |
-| `barSensors`              | `cpu`                                     | Sensor readouts: `cpu`, `gpu`, or hwmon ids like `nct6687/fan1` or `nvme@0000:02:00.0/temp1` |
+| `barSensors`              | `cpu`                                     | Sensor readouts: `cpu`, `gpu`, `gpu:<PCI address>`, `gpufan:<PCI address>`, or hwmon ids like `nct6687/fan1` or `nvme@0000:02:00.0/temp1` |
 | `barGpus`                 | `all`                                     | Which GPUs get a readout: `all`, `none`, or PCI addresses like `0000:01:00.0` (pick them on the Settings page) |
 | `showGpuMemory`           | `false`                                   | Show a VRAM readout, in the GPU readout's look, beside each selected GPU when available |
 | `temperatureUnit`         | `Celsius`                                 | `Celsius` or `Fahrenheit`                                 |
