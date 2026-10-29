@@ -58,7 +58,10 @@ WidgetButton {
   // the bar, so the picture takes that width instead of graphWidth.
   readonly property real cellWidth: Math.max(12, barSize - Style.space(6))
   readonly property real pictureWidth: vertical ? cellWidth : graphWidth
-  readonly property real graphHeight: vertical ? Style.space(8) : Math.max(8, barSize - Style.space(11))
+  // Beside a stacked label a graph spans the letters, so its baseline sits
+  // on the bottom row instead of floating above it.
+  readonly property real graphHeight: vertical ? Style.space(8)
+    : (labelMode === "text" && module !== "sensors" && stackLabel.height > 0 ? stackLabel.height : Math.max(8, barSize - Style.space(11)))
 
   readonly property var cpu: snap.cpu || ({})
   readonly property var gpu: {
@@ -272,6 +275,7 @@ WidgetButton {
     }
 
     StackLabel {
+      id: stackLabel
       visible: root.module !== "sensors" && root.labelMode === "text"
       text: root.shortLabel || root.def.short || root.def.label
       color: root.foreground
