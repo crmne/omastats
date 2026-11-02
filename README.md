@@ -51,6 +51,12 @@ whose boot display is its APU no longer reports the APU as "GPU". NVIDIA's
 proprietary driver has no hwmon chip, so its temperature and fan come from
 `nvidia-smi`, the fan as a percentage of full speed rather than rpm.
 
+On Apple hardware the chassis fans belong to the SMC, which publishes them on
+its ACPI device (`APP0001`) instead of as a hwmon chip, so they appear as the
+fans of an SMC chip. The fans a Mac's discrete GPU reports are meaningless
+there, because the card has no tachometer of its own: OmaStats leaves them out
+rather than show 0 rpm beside the SMC fans that are actually running.
+
 Each GPU card lists the processes using it, with how busy each keeps the card's
 busiest engine and how much memory it holds. AMD, Intel and other DRM drivers
 publish these per process in `/proc/<pid>/fdinfo`, which shows your own
