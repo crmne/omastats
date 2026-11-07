@@ -1114,6 +1114,35 @@ class SensorSampler:
 # ------------------------------------------------------------------------- Battery
 
 
+# Live reads of a Bluetooth HID battery (capacity/status) make the kernel send a
+# GET_REPORT to the device; polled every second, devices like Apple's Magic Mouse
+# stop answering and drop the connection (bluez/bluez#2112). Device batteries are
+# therefore read at most once per DEVICE_BATTERY_TTL seconds. System batteries
+# (BAT0, ...) are unaffected.
+DEVICE_BATTERY_TTL = 600.0
+_device_battery_cache: tuple[float, list[dict]] | None = None
+
+
+def device_peripherals(base: str, entries: list[str]) -> list[dict]:
+    global _device_battery_cache
+    if not entries:
+        return []
+    now = time.time()
+    if _device_battery_cache is not None and now - _device_battery_cache[0] < DEVICE_BATTERY_TTL:
+        return [dict(item) for item in _device_battery_cache[1]]
+    fresh = []
+    for entry in entries:
+        path = f"{base}/{entry}"
+        capacity = read_int(f"{path}/capacity")
+        if capacity is None:
+            continue
+        status = bounded_text(read_text(f"{path}/status") or "Unknown")
+        model = bounded_text(read_text(f"{path}/model_name"))
+        fresh.append({"name": model or bounded_text(entry), "percent": capacity, "status": status})
+    _device_battery_cache = (now, fresh)
+    return [dict(item) for item in fresh]
+
+
 def sample_battery() -> dict | None:
     base = "/sys/class/power_supply"
     if os.environ.get("OMASTATS_FAKE_BATTERY"):
@@ -1129,7 +1158,7 @@ def sample_battery() -> dict | None:
     if not os.path.isdir(base):
         return None
     system = None
-    peripherals = []
+    device_entries = []
     ac_online = None
     for entry in list_dir(base):
         path = f"{base}/{entry}"
@@ -1142,15 +1171,17 @@ def sample_battery() -> dict | None:
         if ptype != "Battery":
             continue
         scope = read_text(f"{path}/scope")
-        capacity = read_int(f"{path}/capacity")
-        status = bounded_text(read_text(f"{path}/status") or "Unknown")
-        model = bounded_text(read_text(f"{path}/model_name"))
         if scope == "Device" or entry.startswith(("hid", "wacom")) or (not entry.startswith("BAT") and read_int(f"{path}/present", 1) == 1 and read_int(f"{path}/energy_full") is None and read_int(f"{path}/charge_full") is None):
-            if capacity is not None and len(peripherals) < 256:
-                peripherals.append({"name": model or bounded_text(entry), "percent": capacity, "status": status})
+            # capacity/status are read by device_peripherals() below, throttled:
+            # on a Bluetooth HID device every live read talks to the device.
+            if len(device_entries) < 256:
+                device_entries.append(entry)
             continue
         if system is not None:
             continue
+        capacity = read_int(f"{path}/capacity")
+        status = bounded_text(read_text(f"{path}/status") or "Unknown")
+        model = bounded_text(read_text(f"{path}/model_name"))
         present = read_int(f"{path}/present", 1) == 1
         voltage = (read_int(f"{path}/voltage_now") or 0) / 1_000_000
         energy_now = read_int(f"{path}/energy_now")
@@ -1196,6 +1227,7 @@ def sample_battery() -> dict | None:
             "model": model,
             "technology": bounded_text(read_text(f"{path}/technology")),
         }
+    peripherals = device_peripherals(base, device_entries)
     if system is None:
         if peripherals:
             return {"present": False, "peripherals": peripherals}

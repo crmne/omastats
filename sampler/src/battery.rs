@@ -2,8 +2,59 @@ use crate::util::{
     bounded_text, list_dir, now_secs, read_i64, read_text, round2, EXTERNAL_TEXT_LIMIT,
 };
 use serde_json::{json, Value};
+use std::sync::Mutex;
 
 const PERIPHERAL_LIMIT: usize = 256;
+
+/// Reading `capacity`/`status` of a Bluetooth HID battery makes the kernel send
+/// a GET_REPORT to the device on every read. Devices like Apple's Magic Mouse
+/// answer slowly or not at all, and a per-second polling loop can make them
+/// drop the connection (bluez/bluez#2112). Device batteries are therefore read
+/// at most once per this many seconds; system batteries are unaffected.
+const DEVICE_BATTERY_TTL: f64 = 600.0;
+
+static DEVICE_BATTERY_CACHE: Mutex<Option<(f64, Vec<Value>)>> = Mutex::new(None);
+
+fn device_peripherals(base: &str, entries: &[String]) -> Vec<Value> {
+    if entries.is_empty() {
+        return Vec::new();
+    }
+
+    let now = now_secs();
+    let mut cache = DEVICE_BATTERY_CACHE
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if let Some((at, cached)) = cache.as_ref() {
+        if now - *at < DEVICE_BATTERY_TTL {
+            return cached.clone();
+        }
+    }
+
+    let mut fresh = Vec::new();
+    for entry in entries {
+        let path = format!("{base}/{entry}");
+        let capacity = read_i64(format!("{path}/capacity"));
+        let status = bounded_text(
+            &read_text(format!("{path}/status"))
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| "Unknown".into()),
+            EXTERNAL_TEXT_LIMIT,
+        );
+        let model = bounded_text(
+            &read_text(format!("{path}/model_name")).unwrap_or_default(),
+            EXTERNAL_TEXT_LIMIT,
+        );
+        if let Some(cap) = capacity {
+            fresh.push(json!({
+                "name": if model.is_empty() { entry.clone() } else { model },
+                "percent": cap,
+                "status": status,
+            }));
+        }
+    }
+    *cache = Some((now, fresh.clone()));
+    fresh
+}
 
 pub fn sample_battery() -> Value {
     if std::env::var_os("ISTAT_FAKE_BATTERY").is_some() {
@@ -26,7 +77,7 @@ pub fn sample_battery() -> Value {
         return Value::Null;
     }
     let mut system: Option<Value> = None;
-    let mut peripherals: Vec<Value> = Vec::new();
+    let mut device_entries: Vec<String> = Vec::new();
     let mut ac_online: Option<bool> = None;
 
     for entry in entries {
@@ -42,6 +93,24 @@ pub fn sample_battery() -> Value {
             continue;
         }
         let scope = read_text(format!("{path}/scope")).unwrap_or_default();
+        let has_energy = read_i64(format!("{path}/energy_full")).is_some()
+            || read_i64(format!("{path}/charge_full")).is_some();
+        let is_device = scope == "Device"
+            || entry.starts_with("hid")
+            || entry.starts_with("wacom")
+            || (!entry.starts_with("BAT") && !has_energy);
+        if is_device {
+            // capacity/status are read through device_peripherals() below,
+            // throttled: on Bluetooth HID devices every live read is a
+            // transaction with the device (see DEVICE_BATTERY_TTL).
+            if device_entries.len() < PERIPHERAL_LIMIT {
+                device_entries.push(entry);
+            }
+            continue;
+        }
+        if system.is_some() {
+            continue;
+        }
         let capacity = read_i64(format!("{path}/capacity"));
         let status = bounded_text(
             &read_text(format!("{path}/status"))
@@ -53,25 +122,6 @@ pub fn sample_battery() -> Value {
             &read_text(format!("{path}/model_name")).unwrap_or_default(),
             EXTERNAL_TEXT_LIMIT,
         );
-        let has_energy = read_i64(format!("{path}/energy_full")).is_some()
-            || read_i64(format!("{path}/charge_full")).is_some();
-        let is_device = scope == "Device"
-            || entry.starts_with("hid")
-            || entry.starts_with("wacom")
-            || (!entry.starts_with("BAT") && !has_energy);
-        if is_device {
-            if let Some(cap) = capacity.filter(|_| peripherals.len() < PERIPHERAL_LIMIT) {
-                peripherals.push(json!({
-                    "name": if model.is_empty() { entry.clone() } else { model.clone() },
-                    "percent": cap,
-                    "status": status,
-                }));
-            }
-            continue;
-        }
-        if system.is_some() {
-            continue;
-        }
         let present = read_i64(format!("{path}/present")).unwrap_or(1) == 1;
         let voltage = read_i64(format!("{path}/voltage_now")).unwrap_or(0) as f64 / 1_000_000.0;
         let mut energy_now = read_i64(format!("{path}/energy_now")).map(|v| v as f64);
@@ -130,6 +180,8 @@ pub fn sample_battery() -> Value {
             ),
         }));
     }
+
+    let peripherals = device_peripherals(base, &device_entries);
 
     match system {
         None => {
