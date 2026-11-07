@@ -66,7 +66,7 @@ jobs:
         run: gem install native-packages --version 0.10.0 --no-document
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87
         with:
-          toolchain: 1.98.0
+          toolchain: 1.99.1
           targets: ${{ matrix.target }}
       - name: Validate version and test native build
         env:
