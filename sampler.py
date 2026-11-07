@@ -1120,30 +1120,69 @@ class SensorSampler:
 # therefore read at most once per DEVICE_BATTERY_TTL seconds. System batteries
 # (BAT0, ...) are unaffected.
 DEVICE_BATTERY_TTL = 600.0
-_device_battery_cache: tuple[float, list[dict]] | None = None
+# A failed read is retried after this many seconds instead of being held for the
+# full TTL; the last good value stays visible in the meantime.
+DEVICE_BATTERY_RETRY = 30.0
+# Cache of device battery records keyed by power-supply entry name; timestamps
+# come from time.monotonic() so wall-clock jumps cannot skew refreshes.
+_device_battery_cache: dict[str, dict] | None = None
+
+
+def read_device_battery(base: str, entry: str) -> dict | None:
+    """One device battery's peripheral record ({name, percent, status}), or None
+    when capacity is unreadable (disconnected or unresponsive device)."""
+    path = f"{base}/{entry}"
+    capacity = read_int(f"{path}/capacity")
+    if capacity is None:
+        return None
+    status = bounded_text(read_text(f"{path}/status") or "Unknown")
+    model = bounded_text(read_text(f"{path}/model_name"))
+    return {"name": model or bounded_text(entry), "percent": capacity, "status": status}
 
 
 def device_peripherals(base: str, entries: list[str]) -> list[dict]:
+    """Peripheral battery records for entries, reading each device at most once
+    per DEVICE_BATTERY_TTL (failed reads retry after DEVICE_BATTERY_RETRY and
+    keep the last good value). Devices are cached individually and reconciled
+    per call: vanished ones are dropped, new ones read immediately."""
     global _device_battery_cache
-    if not entries:
-        return []
-    now = time.time()
-    if _device_battery_cache is not None and now - _device_battery_cache[0] < DEVICE_BATTERY_TTL:
-        return [dict(item) for item in _device_battery_cache[1]]
-    fresh = []
+    if _device_battery_cache is None:
+        _device_battery_cache = {}
+    cache = _device_battery_cache
+    now = time.monotonic()
+
+    # Reconcile with the live device list so replaced/removed devices do not
+    # linger in the cache for a full TTL.
+    for stale_key in [key for key in cache if key not in entries]:
+        del cache[stale_key]
+
+    peripherals = []
     for entry in entries:
-        path = f"{base}/{entry}"
-        capacity = read_int(f"{path}/capacity")
-        if capacity is None:
-            continue
-        status = bounded_text(read_text(f"{path}/status") or "Unknown")
-        model = bounded_text(read_text(f"{path}/model_name"))
-        fresh.append({"name": model or bounded_text(entry), "percent": capacity, "status": status})
-    _device_battery_cache = (now, fresh)
-    return [dict(item) for item in fresh]
+        record = cache.get(entry)
+        if record is None:
+            stale = True
+        elif record["value"] is None:
+            stale = now - record["attempt"] >= DEVICE_BATTERY_RETRY
+        else:
+            stale = now - record["ok"] >= DEVICE_BATTERY_TTL
+        if stale:
+            value = read_device_battery(base, entry)
+            now = time.monotonic()
+            if record is None:
+                record = cache[entry] = {"value": None, "ok": now, "attempt": now}
+            record["attempt"] = now
+            if value is not None:
+                record["ok"] = now
+                record["value"] = value
+        value = cache[entry]["value"]
+        if value is not None and len(peripherals) < 256:
+            peripherals.append(dict(value))
+    return peripherals
 
 
 def sample_battery() -> dict | None:
+    """Samples /sys/class/power_supply: at most one system battery in full
+    detail plus peripheral records from device_peripherals(); None if empty."""
     base = "/sys/class/power_supply"
     if os.environ.get("OMASTATS_FAKE_BATTERY"):
         phase = (time.time() / 4) % 100
@@ -1172,10 +1211,11 @@ def sample_battery() -> dict | None:
             continue
         scope = read_text(f"{path}/scope")
         if scope == "Device" or entry.startswith(("hid", "wacom")) or (not entry.startswith("BAT") and read_int(f"{path}/present", 1) == 1 and read_int(f"{path}/energy_full") is None and read_int(f"{path}/charge_full") is None):
-            # capacity/status are read by device_peripherals() below, throttled:
-            # on a Bluetooth HID device every live read talks to the device.
-            if len(device_entries) < 256:
-                device_entries.append(entry)
+            # capacity/status/model are read by device_peripherals() below,
+            # throttled per device: on a Bluetooth HID device every live read
+            # talks to the device. The peripheral limit applies to successful
+            # reads, not to queued entries.
+            device_entries.append(entry)
             continue
         if system is not None:
             continue

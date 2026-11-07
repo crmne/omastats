@@ -2,7 +2,9 @@ use crate::util::{
     bounded_text, list_dir, now_secs, read_i64, read_text, round2, EXTERNAL_TEXT_LIMIT,
 };
 use serde_json::{json, Value};
+use std::collections::HashMap;
 use std::sync::Mutex;
+use std::time::{Duration, Instant};
 
 const PERIPHERAL_LIMIT: usize = 256;
 
@@ -10,52 +12,100 @@ const PERIPHERAL_LIMIT: usize = 256;
 /// a GET_REPORT to the device on every read. Devices like Apple's Magic Mouse
 /// answer slowly or not at all, and a per-second polling loop can make them
 /// drop the connection (bluez/bluez#2112). Device batteries are therefore read
-/// at most once per this many seconds; system batteries are unaffected.
-const DEVICE_BATTERY_TTL: f64 = 600.0;
+/// at most once per this duration; system batteries are unaffected.
+const DEVICE_BATTERY_TTL: Duration = Duration::from_secs(600);
 
-static DEVICE_BATTERY_CACHE: Mutex<Option<(f64, Vec<Value>)>> = Mutex::new(None);
+/// How long to wait before retrying a device whose last read failed, so a
+/// transient failure is not held for the full `DEVICE_BATTERY_TTL`.
+const DEVICE_BATTERY_RETRY: Duration = Duration::from_secs(30);
 
-fn device_peripherals(base: &str, entries: &[String]) -> Vec<Value> {
-    if entries.is_empty() {
-        return Vec::new();
-    }
-
-    let now = now_secs();
-    let mut cache = DEVICE_BATTERY_CACHE
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-    if let Some((at, cached)) = cache.as_ref() {
-        if now - *at < DEVICE_BATTERY_TTL {
-            return cached.clone();
-        }
-    }
-
-    let mut fresh = Vec::new();
-    for entry in entries {
-        let path = format!("{base}/{entry}");
-        let capacity = read_i64(format!("{path}/capacity"));
-        let status = bounded_text(
-            &read_text(format!("{path}/status"))
-                .filter(|s| !s.is_empty())
-                .unwrap_or_else(|| "Unknown".into()),
-            EXTERNAL_TEXT_LIMIT,
-        );
-        let model = bounded_text(
-            &read_text(format!("{path}/model_name")).unwrap_or_default(),
-            EXTERNAL_TEXT_LIMIT,
-        );
-        if let Some(cap) = capacity {
-            fresh.push(json!({
-                "name": if model.is_empty() { entry.clone() } else { model },
-                "percent": cap,
-                "status": status,
-            }));
-        }
-    }
-    *cache = Some((now, fresh.clone()));
-    fresh
+/// One cached device battery: `value` is the last successful record (kept
+/// across transient failures), timestamps come from a monotonic clock so
+/// wall-clock jumps cannot skew the refresh schedule.
+struct DeviceBattery {
+    value: Option<Value>,
+    last_ok: Instant,
+    last_attempt: Instant,
 }
 
+/// Cache of device battery records keyed by power-supply entry name; entries
+/// are reconciled against the live device list on every refresh.
+static DEVICE_BATTERY_CACHE: Mutex<Option<HashMap<String, DeviceBattery>>> = Mutex::new(None);
+
+/// Reads a single device battery's `capacity`, `status` and `model_name` and
+/// returns its peripheral record, or `None` when `capacity` is unreadable
+/// (disconnected or transiently unresponsive device).
+fn read_device_battery(base: &str, entry: &str) -> Option<Value> {
+    let path = format!("{base}/{entry}");
+    let capacity = read_i64(format!("{path}/capacity"))?;
+    let status = bounded_text(
+        &read_text(format!("{path}/status"))
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| "Unknown".into()),
+        EXTERNAL_TEXT_LIMIT,
+    );
+    let model = bounded_text(
+        &read_text(format!("{path}/model_name")).unwrap_or_default(),
+        EXTERNAL_TEXT_LIMIT,
+    );
+    Some(json!({
+        "name": if model.is_empty() { entry.to_string() } else { model },
+        "percent": capacity,
+        "status": status,
+    }))
+}
+
+/// Returns peripheral battery records for `entries`, reading each device at
+/// most once per `DEVICE_BATTERY_TTL` (failed reads retry after
+/// `DEVICE_BATTERY_RETRY` and keep the last good value). Devices are cached
+/// individually and reconciled per call: vanished devices are dropped, new
+/// ones are read immediately. `PERIPHERAL_LIMIT` applies to records returned.
+fn device_peripherals(base: &str, entries: &[String]) -> Vec<Value> {
+    let now = Instant::now();
+    let mut guard = DEVICE_BATTERY_CACHE
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let cache = guard.get_or_insert_with(HashMap::new);
+
+    // Reconcile with the live device list so replaced/removed devices do not
+    // linger in the cache for a full TTL.
+    cache.retain(|entry, _| entries.iter().any(|live| live == entry));
+
+    let mut peripherals = Vec::new();
+    for entry in entries {
+        let stale = match cache.get(entry) {
+            None => true,
+            Some(device) => match device.value {
+                Some(_) => now.duration_since(device.last_ok) >= DEVICE_BATTERY_TTL,
+                None => now.duration_since(device.last_attempt) >= DEVICE_BATTERY_RETRY,
+            },
+        };
+        if stale {
+            let record = read_device_battery(base, entry);
+            let device = cache.entry(entry.clone()).or_insert_with(|| DeviceBattery {
+                value: None,
+                last_ok: now,
+                last_attempt: now,
+            });
+            device.last_attempt = now;
+            if let Some(value) = record {
+                device.last_ok = now;
+                device.value = Some(value);
+            }
+        }
+        if peripherals.len() >= PERIPHERAL_LIMIT {
+            continue;
+        }
+        if let Some(value) = cache.get(entry).and_then(|device| device.value.as_ref()) {
+            peripherals.push(value.clone());
+        }
+    }
+    peripherals
+}
+
+/// Samples `/sys/class/power_supply`: at most one system battery in full
+/// detail plus peripheral records from [`device_peripherals`], returning
+/// `Value::Null` when nothing is present.
 pub fn sample_battery() -> Value {
     if std::env::var_os("ISTAT_FAKE_BATTERY").is_some() {
         let t = now_secs();
@@ -100,12 +150,12 @@ pub fn sample_battery() -> Value {
             || entry.starts_with("wacom")
             || (!entry.starts_with("BAT") && !has_energy);
         if is_device {
-            // capacity/status are read through device_peripherals() below,
-            // throttled: on Bluetooth HID devices every live read is a
-            // transaction with the device (see DEVICE_BATTERY_TTL).
-            if device_entries.len() < PERIPHERAL_LIMIT {
-                device_entries.push(entry);
-            }
+            // capacity/status/model are read by device_peripherals() below,
+            // throttled per device: on a Bluetooth HID device every live
+            // read talks to the device (see DEVICE_BATTERY_TTL). The
+            // peripheral limit applies to successful reads, not to queued
+            // entries.
+            device_entries.push(entry);
             continue;
         }
         if system.is_some() {
