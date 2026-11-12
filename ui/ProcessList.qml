@@ -22,19 +22,74 @@ Column {
   property string caption: ""
   property string emptyText: "Nothing to show yet"
   property bool expandable: true
+  property ProcessActions actions: null
   property var host: null
   property color foreground: Commons.Color.popups.text
   property string fontFamily: Style.font.family
   property real columnWidth: Style.space(66)
   property int maxRows: 200
 
+  readonly property bool manageGroups: !!actions
   readonly property bool expanded: expandable && !!host && host.processesExpanded === true
   readonly property string query: host ? String(host.processQuery || "") : ""
   readonly property var shown: expanded
     ? Model.filterProcesses(allItems, query, sortKey)
     : (Array.isArray(items) ? items : [])
-  readonly property int rowCount: Math.min(shown.length, maxRows)
+  readonly property var displayed: {
+    if (!pinned) return shown
+    const name = pinned.row.name
+    const rows = shown.filter(row => row.name !== name)
+    const latest = shown.find(row => row.name === name)
+    rows.splice(pinned.index, 0, latest || pinned.row)
+    return rows
+  }
+  readonly property int rowCount: Math.min(displayed.length, maxRows)
   readonly property bool collecting: expanded && (!Array.isArray(allItems) || allItems.length === 0)
+  property var pinned: null
+
+  Commons.Translations {
+    id: groupStrings
+    directory: root.manageGroups ? Qt.resolvedUrl("../i18n") : ""
+  }
+
+  Connections {
+    target: root.actions
+    function onGroupChanged() {
+      if (!root.actions.group) Qt.callLater(root.releasePinnedRow)
+    }
+  }
+
+  onQueryChanged: if (actions) actions.clear()
+  onExpandedChanged: if (actions) actions.clear()
+
+  function selectGroup(index, forClosing) {
+    const row = displayed[index]
+    if (!actions || !actions.available || !row || !row.name) return
+    actions.select(row.name, forClosing)
+    // Keep the chosen row under the pointer when the live list changes rank.
+    // Its figure still uses the latest sample whenever the group is present.
+    if (actions.group === row.name && (!pinned || pinned.row.name !== row.name))
+      pinned = { row: row, index: index }
+  }
+
+  function releasePinnedRow() {
+    if (!pinned || actions?.group) return
+    for (let i = 0; i < processRows.count; i++) {
+      if (processRows.itemAt(i)?.detailsVisible) return
+    }
+    pinned = null
+  }
+
+  component GroupButton: PanelActionButton {
+    fontSize: Style.font.body
+    foreground: root.foreground
+    fontFamily: root.fontFamily
+    focusable: true
+    opacity: enabled ? 1 : 0.4
+    Accessible.role: Accessible.Button
+    Accessible.name: tooltipText
+    Accessible.onPressAction: if (enabled) clicked()
+  }
 
   function figure(item, column) {
     var raw = item ? item[column.key] : undefined
@@ -95,6 +150,7 @@ Column {
 
     Row {
       anchors.right: parent.right
+      anchors.rightMargin: root.manageGroups ? Style.space(28) : 0
       anchors.verticalCenter: parent.verticalCenter
       spacing: Style.space(8)
 
@@ -163,72 +219,162 @@ Column {
   }
 
   Repeater {
+    id: processRows
     model: root.rowCount
 
     delegate: Item {
       id: procRow
       required property int index
-      readonly property var proc: root.shown[index] || ({})
+      readonly property var proc: root.displayed[index] || ({})
+      readonly property bool selected: root.manageGroups && root.actions.group !== "" && proc.name === root.actions.group
+      readonly property bool detailsVisible: detailsViewport.height > 0
       width: parent.width
-      height: Style.space(20)
+      height: header.height + detailsViewport.height
 
-      Row {
-        anchors.left: parent.left
-        anchors.right: figures.left
-        anchors.rightMargin: Style.space(10)
-        anchors.verticalCenter: parent.verticalCenter
-        spacing: Style.space(6)
+      Item {
+        id: header
+        width: parent.width
+        height: Style.space(root.manageGroups ? 24 : 20)
 
-        Text {
-          textFormat: Text.PlainText
-          text: procRow.proc.name || ""
-          color: root.foreground
-          opacity: 0.9
-          font.family: root.fontFamily
-          font.pixelSize: Style.font.body
-          elide: Text.ElideRight
-          width: Math.min(implicitWidth, parent.width - (countText.visible ? countText.implicitWidth + Style.space(6) : 0))
+        Row {
+          anchors.left: parent.left
+          anchors.right: disclosure.left
+          anchors.rightMargin: Style.space(10)
           anchors.verticalCenter: parent.verticalCenter
+          spacing: Style.space(6)
+
+          Text {
+            textFormat: Text.PlainText
+            text: procRow.proc.name || ""
+            color: root.foreground
+            opacity: 0.9
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.body
+            elide: Text.ElideRight
+            width: Math.max(0, Math.min(implicitWidth, parent.width - (countText.visible ? countText.implicitWidth + Style.space(6) : 0)))
+            anchors.verticalCenter: parent.verticalCenter
+          }
+
+          Text {
+            id: countText
+            textFormat: Text.PlainText
+            visible: (procRow.proc.count || 1) > 1
+            text: "×" + (procRow.proc.count || 1)
+            color: root.foreground
+            opacity: 0.4
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.caption
+            anchors.verticalCenter: parent.verticalCenter
+          }
         }
 
-        Text {
-          id: countText
-          textFormat: Text.PlainText
-          visible: (procRow.proc.count || 1) > 1
-          text: "×" + (procRow.proc.count || 1)
-          color: root.foreground
-          opacity: 0.4
-          font.family: root.fontFamily
-          font.pixelSize: Style.font.caption
+        Row {
+          id: figures
+          anchors.right: closeGroup.left
+          anchors.rightMargin: root.manageGroups ? Style.space(6) : 0
           anchors.verticalCenter: parent.verticalCenter
+          spacing: Style.space(8)
+
+          Repeater {
+            model: root.columns
+            delegate: Item {
+              id: cell
+              required property var modelData
+              readonly property var parts: root.figure(procRow.proc, modelData)
+              width: root.columnWidth
+              height: Style.space(20)
+
+              Measure {
+                anchors.right: parent.right
+                anchors.verticalCenter: parent.verticalCenter
+                value: cell.parts.value
+                unit: cell.parts.unit
+                foreground: root.foreground
+                fontFamily: root.fontFamily
+                bold: false
+                valueOpacity: 0.9
+              }
+            }
+          }
+        }
+
+        Loader {
+          id: disclosure
+          anchors.right: figures.left
+          anchors.verticalCenter: parent.verticalCenter
+          width: active ? Style.space(22) : 0
+          height: parent.height
+          active: root.manageGroups
+          sourceComponent: GroupButton {
+            enabled: root.actions.available && (!root.actions.busy || (procRow.selected && root.actions.loading))
+              && (!root.actions.pending || procRow.selected)
+            iconText: procRow.selected ? "▾" : (Commons.I18n.rightToLeft ? "‹" : "›")
+            tooltipText: groupStrings.t(procRow.selected ? "processGroup.hide" : "processGroup.show")
+            onClicked: root.selectGroup(procRow.index, false)
+          }
+        }
+
+        Loader {
+          id: closeGroup
+          anchors.right: parent.right
+          anchors.verticalCenter: parent.verticalCenter
+          width: active ? Style.space(22) : 0
+          height: parent.height
+          active: root.manageGroups
+          sourceComponent: GroupButton {
+            enabled: root.actions.available && !root.actions.busy && !root.actions.pending
+              && (!procRow.selected || !root.actions.data || (root.actions.data.windowsAvailable && !root.actions.data.truncated))
+            iconText: "×"
+            hoverColor: Commons.Color.urgent
+            tooltipText: groupStrings.t("processGroup.closeGroupTooltip")
+            onClicked: root.selectGroup(procRow.index, true)
+          }
         }
       }
 
-      Row {
-        id: figures
-        anchors.right: parent.right
-        anchors.verticalCenter: parent.verticalCenter
-        spacing: Style.space(8)
+      Item {
+        id: detailsViewport
+        readonly property bool sameGroup: !!detailsLoader.item && !!detailsLoader.item.snapshot
+          && detailsLoader.item.snapshot.group === procRow.proc.name
+        y: header.height
+        width: parent.width
+        height: procRow.selected && detailsLoader.item ? detailsLoader.item.implicitHeight : 0
+        visible: height > 0 && (procRow.selected || sameGroup)
+        clip: true
+        onHeightChanged: if (height === 0 && !root.actions?.group) Qt.callLater(root.releasePinnedRow)
 
-        Repeater {
-          model: root.columns
-          delegate: Item {
-            id: cell
-            required property var modelData
-            readonly property var parts: root.figure(procRow.proc, modelData)
-            width: root.columnWidth
-            height: Style.space(20)
+        Behavior on height {
+          id: resize
+          NumberAnimation {
+            duration: Style.duration(resize.targetValue > 0 ? 220 : 150)
+            easing.type: Easing.OutCubic
+          }
+        }
 
-            Measure {
-              anchors.right: parent.right
-              anchors.verticalCenter: parent.verticalCenter
-              value: cell.parts.value
-              unit: cell.parts.unit
-              foreground: root.foreground
-              fontFamily: root.fontFamily
-              bold: false
-              valueOpacity: 0.9
+        Loader {
+          id: detailsLoader
+          active: procRow.selected || (detailsViewport.height > 0 && detailsViewport.sameGroup)
+          enabled: procRow.selected
+          width: parent.width
+          sourceComponent: ProcessGroup {
+            id: detailsContent
+            strings: groupStrings
+            foreground: root.foreground
+            fontFamily: root.fontFamily
+
+            // Keep the last snapshot in the clipping viewport as it closes.
+            Binding {
+              target: detailsContent
+              property: "snapshot"
+              value: root.actions?.view
+              when: procRow.selected && root.actions.view.group === procRow.proc.name
+              restoreMode: Binding.RestoreNone
             }
+
+            onTerminateRequested: function(member) { root.actions.prepareTermination(member) }
+            onWindowCloseRequested: function(member, window) { root.actions.closeWindow(member, window) }
+            onConfirmed: root.actions.confirm()
+            onCanceled: root.actions.pending = null
           }
         }
       }

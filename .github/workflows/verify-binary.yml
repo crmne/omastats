@@ -70,6 +70,7 @@ jobs:
           python scripts/test-launcher.py
           python scripts/test-gpu.py
           python scripts/test-disks.py
+          python scripts/test-process-actions.py
           python - <<'PY'
           from pathlib import Path
           import json

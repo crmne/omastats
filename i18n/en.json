@@ -1,0 +1,23 @@
+{
+  "processGroup.show": "Show process details",
+  "processGroup.hide": "Hide process details",
+  "processGroup.closeGroupTooltip": "Close group…",
+  "processGroup.closeGroup": "Close group",
+  "processGroup.closeGroupPrompt": "Close available items in “%1”?",
+  "processGroup.closeWindow": "Close window",
+  "processGroup.terminateProcess": "Terminate process…",
+  "processGroup.terminatePrompt": "Terminate process %1?",
+  "processGroup.terminate": "Terminate",
+  "processGroup.pid": "PID %1",
+  "processGroup.untitledWindow": "Untitled window",
+  "processGroup.loading": "Loading processes…",
+  "processGroup.empty": "No processes in this group",
+  "processGroup.noActions": "No actions available for this group",
+  "processGroup.failed": "Could not complete the request",
+  "processGroup.windowListUnavailable": "Actions require the Hyprland window list.",
+  "processGroup.truncated": "Showing part of this group. Choose an individual process or window.",
+  "processGroup.closeWindows": { "one": "Close %1 window", "other": "Close %1 windows" },
+  "processGroup.terminateProcesses": { "one": "Terminate %1 process", "other": "Terminate %1 processes" },
+  "processGroup.sent": { "one": "%1 request sent", "other": "%1 requests sent" },
+  "processGroup.skipped": { "one": "%1 target skipped", "other": "%1 targets skipped" }
+}
