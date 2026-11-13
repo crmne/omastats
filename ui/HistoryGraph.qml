@@ -2,7 +2,7 @@ import QtQuick
 import qs.Commons
 import qs.Commons as Commons
 
-// iStat-style bar history: one thin vertical bar per sample, newest at the
+// iStat-style bar history: one vertical bar per sample, newest at the
 // right, stacked bottom-to-top when several series are given. Bars are
 // snapped to device pixels so 1px marks stay crisp on fractional scales.
 Canvas {
@@ -43,9 +43,10 @@ Canvas {
     var snap = function(v) { return Math.round(v * dpr) / dpr }
     var list = Array.isArray(root.series) ? root.series : []
     var count = list.length
-    var n = root.capacity
     var len = 0
     for (var s = 0; s < count; s++) if (list[s] && list[s].length > len) len = list[s].length
+    var n = Math.min(root.capacity, len)
+    var step = n > 0 ? (width + root.gap) / n : 0
 
     var baseH = root.showBaseline ? 1 : 0
     var usable = Math.max(1, height - baseH)
@@ -63,7 +64,8 @@ Canvas {
     for (var b = 0; b < n; b++) {
       var idx = len - n + b
       if (idx < 0) continue
-      var x = width - (n - b) * root.pitch + root.gap
+      var x = b * step
+      var right = snap(x + step - root.gap)
       var y = height - baseH
       for (var c = 0; c < count; c++) {
         var v = Number(list[c] ? list[c][idx] : 0) || 0
@@ -77,7 +79,7 @@ Canvas {
         var sampleColor = Array.isArray(perSeries) ? perSeries[idx] : null
         ctx.globalAlpha = c === 1 && sampleColor ? 0.62 : 1
         ctx.fillStyle = sampleColor || root.colors[c] || Commons.Color.accent
-        ctx.fillRect(snap(x), top, Math.max(1 / dpr, snap(root.barWidth)), bottom - top)
+        ctx.fillRect(snap(x), top, Math.max(1 / dpr, right - snap(x)), bottom - top)
         ctx.globalAlpha = 1
         y -= h
       }

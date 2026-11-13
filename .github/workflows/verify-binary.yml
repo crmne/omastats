@@ -179,7 +179,7 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: 22
-      - run: node --test scripts/test-model.cjs
+      - run: node --test scripts/test-model.cjs scripts/test-graphs.cjs
       - name: Test the bundled binary on native ARM64
         shell: bash
         run: |

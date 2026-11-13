@@ -50,10 +50,11 @@ Canvas {
 
     var dpr = (Screen && Screen.devicePixelRatio) ? Screen.devicePixelRatio : 1
     var snap = function(v) { return Math.round(v * dpr) / dpr }
-    var n = root.capacity
     var upList = Array.isArray(root.up) ? root.up : []
     var downList = Array.isArray(root.down) ? root.down : []
     var len = Math.max(upList.length, downList.length)
+    var n = Math.min(root.capacity, len)
+    var step = n > 0 ? (width + root.gap) / n : 0
     var mid = snap(height / 2)
     var half = Math.max(1, mid - 1)
     var max = Math.max(Number(root.floor) || 1, root.peakUp, root.peakDown) * root.headroom
@@ -67,8 +68,8 @@ Canvas {
         if (v <= 0) continue
         var h = Math.min(half, v / max * half)
         if (h < 1 / dpr) h = 1 / dpr
-        var x = snap(width - (n - b) * root.pitch + root.gap)
-        var w = Math.max(1 / dpr, snap(root.barWidth))
+        var x = snap(b * step)
+        var w = Math.max(1 / dpr, snap(b * step + step - root.gap) - x)
         if (direction < 0) {
           var top = snap(mid - h)
           ctx.fillRect(x, top, w, mid - top)
