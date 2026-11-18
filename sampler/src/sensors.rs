@@ -39,7 +39,8 @@ pub struct SensorSampler {
 }
 
 fn pretty_chip(name: &str) -> String {
-    let table: [(&str, &str); 17] = [
+    let table: [(&str, &str); 18] = [
+        ("applesmc", "SMC"),
         ("k10temp", "CPU"),
         ("zenpower", "CPU"),
         ("coretemp", "CPU"),
@@ -158,6 +159,78 @@ fn dedupe(chips: Vec<Chip>) -> Vec<Chip> {
     kept
 }
 
+/// The fans of an Apple SMC, which are not hwmon chips: `applesmc` registers a
+/// hwmon node without a `name` attribute, so the scan above skips it, and on T2
+/// Macs that node carries no fan attributes either. The fans sit on the ACPI
+/// device itself, so they are added as their own chip.
+fn applesmc_chip_in(smc: &Path) -> Option<Chip> {
+    let mut fans = Vec::new();
+    for entry in list_dir(smc) {
+        if !entry.starts_with("fan") || !entry.ends_with("_input") {
+            continue;
+        }
+        let key = entry[..entry.len() - 6].to_string();
+        fans.push(Fan {
+            label: bounded_text(
+                &read_text(format!("{}/{key}_label", smc.display())).unwrap_or_default(),
+                EXTERNAL_TEXT_LIMIT,
+            ),
+            path: format!("{}/{entry}", smc.display()),
+            key,
+        });
+    }
+    if fans.is_empty() {
+        return None;
+    }
+    Some(Chip {
+        name: "applesmc".to_string(),
+        device: String::new(),
+        temps: Vec::new(),
+        fans,
+    })
+}
+
+fn applesmc_chip() -> Option<Chip> {
+    const SMC: &str = "/sys/bus/acpi/devices/APP0001:00";
+    let smc = Path::new(SMC);
+    if !smc.is_dir() {
+        return None;
+    }
+    applesmc_chip_in(smc)
+}
+
+/// Whether a sysfs device sits behind a PCIe port the firmware marks external,
+/// as a card in a Thunderbolt enclosure does. `real` is its resolved path and
+/// `root` the top of the device tree, `/sys/devices`.
+fn behind_external_port(real: &Path, root: &Path) -> bool {
+    real.ancestors()
+        .take_while(|dir| dir.starts_with(root))
+        .any(|dir| read_text(dir.join("removable")).as_deref() == Some("removable"))
+}
+
+fn external_fan(fan: &Fan) -> bool {
+    let hwmon = Path::new(&fan.path).parent().unwrap_or(Path::new("/"));
+    std::fs::canonicalize(hwmon)
+        .is_ok_and(|real| behind_external_port(&real, Path::new("/sys/devices")))
+}
+
+/// On a Mac the fans belong to the SMC, and a discrete GPU's fan attribute is a
+/// tachometer the card does not have: it reads 0 rpm while the SMC fans are the
+/// ones running. Once the SMC's fans are known, drop those readings rather than
+/// report a stopped fan beside them. A card in an external enclosure has fans
+/// of its own and keeps them.
+fn without_phantom_gpu_fans(chips: Vec<Chip>, external: impl Fn(&Fan) -> bool) -> Vec<Chip> {
+    chips
+        .into_iter()
+        .map(|mut chip| {
+            if GPU_HWMON.contains(&chip.name.as_str()) && !chip.fans.iter().any(&external) {
+                chip.fans.clear();
+            }
+            chip
+        })
+        .collect()
+}
+
 impl SensorSampler {
     pub fn new() -> Self {
         Self {
@@ -223,6 +296,14 @@ impl SensorSampler {
                 temps,
                 fans,
             });
+        }
+        let smc = applesmc_chip();
+        let has_smc = smc.is_some();
+        if let Some(chip) = smc {
+            chips.push(chip);
+        }
+        if has_smc {
+            chips = without_phantom_gpu_fans(chips, external_fan);
         }
         self.chips = dedupe(chips);
         self.gpu_temp_path = None;
@@ -330,5 +411,85 @@ mod tests {
             "nvme@0000:02:00.0/temp1"
         );
         assert_eq!(sensor_id(&chip("nvme", ""), "temp1", true), "nvme/temp1");
+    }
+
+    #[test]
+    fn applesmc_fans_come_from_the_acpi_device() {
+        let smc = std::env::temp_dir().join(format!("omastats-smc-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&smc);
+        std::fs::create_dir_all(&smc).unwrap();
+        std::fs::write(smc.join("fan1_input"), "4123\n").unwrap();
+        std::fs::write(smc.join("fan1_label"), "Leftside").unwrap();
+        std::fs::write(smc.join("fan2_input"), "3890\n").unwrap();
+
+        let chip = applesmc_chip_in(&smc).expect("applesmc fans");
+        std::fs::remove_dir_all(&smc).unwrap();
+
+        assert_eq!(chip.name, "applesmc");
+        assert_eq!(pretty_chip(&chip.name), "SMC");
+        assert_eq!(chip.fans.len(), 2);
+        assert_eq!(chip.fans[0].key, "fan1");
+        assert_eq!(chip.fans[0].label, "Leftside");
+        assert!(chip.fans[0].path.ends_with("/fan1_input"));
+        assert!(chip.fans[1].path.ends_with("/fan2_input"));
+    }
+
+    #[test]
+    fn mac_gpu_fan_readings_are_dropped_when_the_smc_has_fans() {
+        let mut gpu = chip("amdgpu", "0000:03:00.0");
+        gpu.fans.push(Fan {
+            key: "fan1".into(),
+            label: String::new(),
+            path: "/sys/class/hwmon/hwmon6/fan1_input".into(),
+        });
+        let mut smc = chip("applesmc", "");
+        smc.fans.push(Fan {
+            key: "fan1".into(),
+            label: String::new(),
+            path: "/sys/bus/acpi/devices/APP0001:00/fan1_input".into(),
+        });
+
+        let mut egpu = chip("amdgpu", "0000:0a:00.0");
+        egpu.fans.push(Fan {
+            key: "fan1".into(),
+            label: String::new(),
+            path: "/sys/class/hwmon/hwmon7/fan1_input".into(),
+        });
+
+        let chips =
+            without_phantom_gpu_fans(vec![gpu, smc, egpu], |fan| fan.path.contains("hwmon7"));
+
+        assert!(chips[0].fans.is_empty());
+        assert_eq!(chips[1].fans.len(), 1);
+        assert_eq!(chips[2].fans.len(), 1, "an external card keeps its fans");
+    }
+
+    #[test]
+    fn a_card_behind_an_external_port_is_external() {
+        let root = std::env::temp_dir().join(format!("omastats-egpu-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let port = root.join("pci0000:00/0000:00:07.0");
+        let hwmon = port.join("0000:0a:00.0/hwmon/hwmon7");
+        std::fs::create_dir_all(&hwmon).unwrap();
+        let internal = root.join("pci0000:00/0000:00:01.0/0000:01:00.0/hwmon/hwmon6");
+        std::fs::create_dir_all(&internal).unwrap();
+        std::fs::write(port.join("removable"), "removable\n").unwrap();
+
+        assert!(behind_external_port(&hwmon, &root));
+        assert!(!behind_external_port(&internal, &root));
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn applesmc_without_fans_is_not_a_chip() {
+        let smc = std::env::temp_dir().join(format!("omastats-smc-empty-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&smc);
+        std::fs::create_dir_all(&smc).unwrap();
+        std::fs::write(smc.join("temp1_input"), "45000\n").unwrap();
+
+        let chip = applesmc_chip_in(&smc);
+        std::fs::remove_dir_all(&smc).unwrap();
+
+        assert!(chip.is_none());
     }
 }

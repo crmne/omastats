@@ -265,5 +265,46 @@ class PowerSamplerTests(unittest.TestCase):
             self.assertEqual(sampler.sample()["zones"], {"core": 15.0, "dram": 2.0})
 
 
+class AppleSmcTests(unittest.TestCase):
+    def test_fans_come_from_the_acpi_device(self):
+        with tempfile.TemporaryDirectory() as smc:
+            Path(smc, "fan1_input").write_text("4123\n")
+            Path(smc, "fan1_label").write_text("Leftside")
+            Path(smc, "fan2_input").write_text("3890\n")
+            Path(smc, "temp1_input").write_text("45000\n")
+            chip = NAMESPACE["applesmc_chip"](smc)
+        self.assertEqual(chip["name"], "applesmc")
+        self.assertEqual(NAMESPACE["SensorSampler"]._pretty_chip(chip["name"]), "SMC")
+        self.assertEqual([(f["key"], f["label"]) for f in chip["fans"]], [("fan1", "Leftside"), ("fan2", "")])
+        self.assertEqual(chip["temps"], [])
+
+    def test_an_smc_without_fans_is_not_a_chip(self):
+        with tempfile.TemporaryDirectory() as smc:
+            Path(smc, "temp1_input").write_text("45000\n")
+            self.assertIsNone(NAMESPACE["applesmc_chip"](smc))
+        self.assertIsNone(NAMESPACE["applesmc_chip"]("/nonexistent/APP0001:00"))
+
+    def test_gpu_fans_are_dropped_beside_the_smc(self):
+        gpu = {"name": "amdgpu", "path": "/sys/class/hwmon/hwmon6", "temps": [{"key": "temp1"}], "fans": [{"key": "fan1"}]}
+        egpu = {"name": "amdgpu", "path": "/sys/class/hwmon/hwmon7", "temps": [], "fans": [{"key": "fan1"}]}
+        board = {"name": "nct6687", "path": "/sys/class/hwmon/hwmon2", "temps": [], "fans": [{"key": "fan1"}]}
+        chips = NAMESPACE["without_phantom_gpu_fans"]([gpu, egpu, board], lambda chip: chip["path"].endswith("hwmon7"))
+        self.assertEqual(chips[0]["fans"], [])
+        self.assertEqual(chips[0]["temps"], [{"key": "temp1"}])
+        self.assertEqual(chips[1]["fans"], [{"key": "fan1"}], "an external card keeps its fans")
+        self.assertEqual(chips[2]["fans"], [{"key": "fan1"}])
+
+    def test_a_card_behind_an_external_port_is_external(self):
+        with tempfile.TemporaryDirectory() as root:
+            port = Path(root, "pci0000:00/0000:00:07.0")
+            hwmon = port / "0000:0a:00.0/hwmon/hwmon7"
+            internal = Path(root, "pci0000:00/0000:00:01.0/0000:01:00.0/hwmon/hwmon6")
+            hwmon.mkdir(parents=True)
+            internal.mkdir(parents=True)
+            (port / "removable").write_text("removable\n")
+            self.assertTrue(NAMESPACE["behind_external_port"](str(hwmon), root))
+            self.assertFalse(NAMESPACE["behind_external_port"](str(internal), root))
+
+
 if __name__ == "__main__":
     unittest.main()

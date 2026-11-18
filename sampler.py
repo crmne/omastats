@@ -1760,6 +1760,46 @@ def sensor_id(chip: dict, key: str, shared: bool) -> str:
     return f"{chip['name']}/{key}"
 
 
+APPLESMC = "/sys/bus/acpi/devices/APP0001:00"
+
+
+def applesmc_chip(path: str = APPLESMC) -> dict | None:
+    """The fans of an Apple SMC, which are not a hwmon chip: applesmc's hwmon
+    node has no name, and on T2 Macs no fans either. They sit on the ACPI
+    device, as in sensors.rs."""
+    fans = []
+    for entry in list_dir(path):
+        if entry.startswith("fan") and entry.endswith("_input"):
+            key = entry[:-6]
+            fans.append({"key": key, "label": bounded_text(read_text(f"{path}/{key}_label")),
+                         "path": f"{path}/{entry}"})
+    if not fans:
+        return None
+    return {"name": "applesmc", "path": path, "device": "", "temps": [], "fans": fans,
+            "labelled": any(f["label"] for f in fans)}
+
+
+def behind_external_port(real: str, root: str = "/sys/devices") -> bool:
+    """Whether a resolved sysfs path sits behind a PCIe port the firmware
+    marks external, as a card in a Thunderbolt enclosure does."""
+    while real.startswith(root + "/"):
+        if read_text(f"{real}/removable") == "removable":
+            return True
+        real = os.path.dirname(real)
+    return False
+
+
+def without_phantom_gpu_fans(chips: list[dict], external=None) -> list[dict]:
+    """A Mac's discrete GPU reports a fan it does not have, at 0 rpm, while
+    the SMC's fans run: once those are known, drop the GPU's. A card in an
+    external enclosure has fans of its own and keeps them."""
+    if external is None:
+        def external(chip: dict) -> bool:
+            return behind_external_port(os.path.realpath(chip["path"]))
+    return [dict(chip, fans=[]) if chip["name"] in GPU_TEMP_HWMON and not external(chip) else chip
+            for chip in chips]
+
+
 class SensorSampler:
     def __init__(self) -> None:
         self.chips: list[dict] = []
@@ -1805,6 +1845,9 @@ class SensorSampler:
             chips.append({"name": name, "path": path, "device": chip_device(path),
                           "temps": temps, "fans": fans,
                           "labelled": any(t["label"] for t in temps) or any(f["label"] for f in fans)})
+        smc = applesmc_chip()
+        if smc:
+            chips = without_phantom_gpu_fans(chips) + [smc]
         # Some boards expose the same super-IO chip twice (vendor + generic driver).
         # Keep the labelled instance; drop unlabelled duplicates.
         self.chips = self._dedupe(chips)
@@ -1844,7 +1887,7 @@ class SensorSampler:
     @staticmethod
     def _pretty_chip(name: str) -> str:
         table = {
-            "k10temp": "CPU", "zenpower": "CPU", "coretemp": "CPU", "nvme": "NVMe",
+            "applesmc": "SMC", "k10temp": "CPU", "zenpower": "CPU", "coretemp": "CPU", "nvme": "NVMe",
             "drivetemp": "Drive", "amdgpu": "GPU", "nouveau": "GPU", "i915": "GPU",
             "acpitz": "ACPI", "iwlwifi_1": "Wi-Fi", "mt7921_phy0": "Wi-Fi",
             "spd5118": "Memory", "jc42": "Memory", "thinkpad": "ThinkPad",
