@@ -1779,10 +1779,25 @@ def applesmc_chip(path: str = APPLESMC) -> dict | None:
             "labelled": any(f["label"] for f in fans)}
 
 
-def without_phantom_gpu_fans(chips: list[dict]) -> list[dict]:
+def behind_external_port(real: str, root: str = "/sys/devices") -> bool:
+    """Whether a resolved sysfs path sits behind a PCIe port the firmware
+    marks external, as a card in a Thunderbolt enclosure does."""
+    while real.startswith(root + "/"):
+        if read_text(f"{real}/removable") == "removable":
+            return True
+        real = os.path.dirname(real)
+    return False
+
+
+def without_phantom_gpu_fans(chips: list[dict], external=None) -> list[dict]:
     """A Mac's discrete GPU reports a fan it does not have, at 0 rpm, while
-    the SMC's fans run: once those are known, drop the GPU's."""
-    return [dict(chip, fans=[]) if chip["name"] in GPU_TEMP_HWMON else chip for chip in chips]
+    the SMC's fans run: once those are known, drop the GPU's. A card in an
+    external enclosure has fans of its own and keeps them."""
+    if external is None:
+        def external(chip: dict) -> bool:
+            return behind_external_port(os.path.realpath(chip["path"]))
+    return [dict(chip, fans=[]) if chip["name"] in GPU_TEMP_HWMON and not external(chip) else chip
+            for chip in chips]
 
 
 class SensorSampler:

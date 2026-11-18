@@ -199,15 +199,31 @@ fn applesmc_chip() -> Option<Chip> {
     applesmc_chip_in(smc)
 }
 
+/// Whether a sysfs device sits behind a PCIe port the firmware marks external,
+/// as a card in a Thunderbolt enclosure does. `real` is its resolved path and
+/// `root` the top of the device tree, `/sys/devices`.
+fn behind_external_port(real: &Path, root: &Path) -> bool {
+    real.ancestors()
+        .take_while(|dir| dir.starts_with(root))
+        .any(|dir| read_text(dir.join("removable")).as_deref() == Some("removable"))
+}
+
+fn external_fan(fan: &Fan) -> bool {
+    let hwmon = Path::new(&fan.path).parent().unwrap_or(Path::new("/"));
+    std::fs::canonicalize(hwmon)
+        .is_ok_and(|real| behind_external_port(&real, Path::new("/sys/devices")))
+}
+
 /// On a Mac the fans belong to the SMC, and a discrete GPU's fan attribute is a
 /// tachometer the card does not have: it reads 0 rpm while the SMC fans are the
 /// ones running. Once the SMC's fans are known, drop those readings rather than
-/// report a stopped fan beside them.
-fn without_phantom_gpu_fans(chips: Vec<Chip>) -> Vec<Chip> {
+/// report a stopped fan beside them. A card in an external enclosure has fans
+/// of its own and keeps them.
+fn without_phantom_gpu_fans(chips: Vec<Chip>, external: impl Fn(&Fan) -> bool) -> Vec<Chip> {
     chips
         .into_iter()
         .map(|mut chip| {
-            if GPU_HWMON.contains(&chip.name.as_str()) {
+            if GPU_HWMON.contains(&chip.name.as_str()) && !chip.fans.iter().any(&external) {
                 chip.fans.clear();
             }
             chip
@@ -287,7 +303,7 @@ impl SensorSampler {
             chips.push(chip);
         }
         if has_smc {
-            chips = without_phantom_gpu_fans(chips);
+            chips = without_phantom_gpu_fans(chips, external_fan);
         }
         self.chips = dedupe(chips);
         self.gpu_temp_path = None;
@@ -433,10 +449,35 @@ mod tests {
             path: "/sys/bus/acpi/devices/APP0001:00/fan1_input".into(),
         });
 
-        let chips = without_phantom_gpu_fans(vec![gpu, smc]);
+        let mut egpu = chip("amdgpu", "0000:0a:00.0");
+        egpu.fans.push(Fan {
+            key: "fan1".into(),
+            label: String::new(),
+            path: "/sys/class/hwmon/hwmon7/fan1_input".into(),
+        });
+
+        let chips =
+            without_phantom_gpu_fans(vec![gpu, smc, egpu], |fan| fan.path.contains("hwmon7"));
 
         assert!(chips[0].fans.is_empty());
         assert_eq!(chips[1].fans.len(), 1);
+        assert_eq!(chips[2].fans.len(), 1, "an external card keeps its fans");
+    }
+
+    #[test]
+    fn a_card_behind_an_external_port_is_external() {
+        let root = std::env::temp_dir().join(format!("omastats-egpu-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let port = root.join("pci0000:00/0000:00:07.0");
+        let hwmon = port.join("0000:0a:00.0/hwmon/hwmon7");
+        std::fs::create_dir_all(&hwmon).unwrap();
+        let internal = root.join("pci0000:00/0000:00:01.0/0000:01:00.0/hwmon/hwmon6");
+        std::fs::create_dir_all(&internal).unwrap();
+        std::fs::write(port.join("removable"), "removable\n").unwrap();
+
+        assert!(behind_external_port(&hwmon, &root));
+        assert!(!behind_external_port(&internal, &root));
+        std::fs::remove_dir_all(&root).unwrap();
     }
 
     #[test]
