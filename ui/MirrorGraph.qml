@@ -1,6 +1,8 @@
 import QtQuick
+import Quickshell
 import qs.Commons
 import qs.Commons as Commons
+import "../Model.js" as Model
 
 // Bidirectional bar history for send/receive and read/write: `up` grows
 // from the midline upward, `down` grows from it downward, both on one
@@ -31,6 +33,10 @@ Canvas {
     return m
   }
 
+  // Bars snap to the window's device pixels; Screen's ratio is a whole
+  // number on a fractional-scale output, between them.
+  readonly property real deviceScale: Model.deviceScale(root.QsWindow.window)
+
   antialiasing: false
   renderStrategy: Canvas.Cooperative
 
@@ -42,13 +48,14 @@ Canvas {
   onHeightChanged: requestPaint()
   onMidlineColorChanged: requestPaint()
   onVisibleChanged: if (visible) requestPaint()
+  onDeviceScaleChanged: requestPaint()
 
   onPaint: {
     var ctx = getContext("2d")
     ctx.clearRect(0, 0, width, height)
     if (width <= 0 || height <= 0) return
 
-    var dpr = (Screen && Screen.devicePixelRatio) ? Screen.devicePixelRatio : 1
+    var dpr = root.deviceScale
     var snap = function(v) { return Math.round(v * dpr) / dpr }
     var n = root.capacity
     var upList = Array.isArray(root.up) ? root.up : []

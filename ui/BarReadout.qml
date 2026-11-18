@@ -610,8 +610,22 @@ WidgetButton {
 
     Column {
       spacing: 0
+      // Centre the figures, not the line boxes lineHeight trims underneath.
+      transform: Translate {
+        y: Model.inkOffset(firstRate.baselineOffset, firstRate.height, rateCaps.tightBoundingRect.height / 100)
+      }
+
+      // Tight bounds come back in whole pixels, so measure a capital a
+      // hundred times larger.
+      TextMetrics {
+        id: rateCaps
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.caption * 100
+        text: "H"
+      }
 
       Text {
+        id: firstRate
         textFormat: Text.PlainText
         width: Math.ceil(reserve.advanceWidth)
         text: root.primaryText

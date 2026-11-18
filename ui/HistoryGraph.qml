@@ -1,6 +1,8 @@
 import QtQuick
+import Quickshell
 import qs.Commons
 import qs.Commons as Commons
+import "../Model.js" as Model
 
 // iStat-style bar history: one thin vertical bar per sample, newest at the
 // right, stacked bottom-to-top when several series are given. Bars are
@@ -22,6 +24,10 @@ Canvas {
   readonly property int pitch: Math.max(1, barWidth + gap)
   readonly property int capacity: Math.max(1, Math.floor((width + gap) / pitch))
 
+  // Bars snap to the window's device pixels; Screen's ratio is a whole
+  // number on a fractional-scale output, between them.
+  readonly property real deviceScale: Model.deviceScale(root.QsWindow.window)
+
   antialiasing: false
   renderStrategy: Canvas.Cooperative
 
@@ -33,13 +39,14 @@ Canvas {
   onHeightChanged: requestPaint()
   onBaselineColorChanged: requestPaint()
   onVisibleChanged: if (visible) requestPaint()
+  onDeviceScaleChanged: requestPaint()
 
   onPaint: {
     var ctx = getContext("2d")
     ctx.clearRect(0, 0, width, height)
     if (width <= 0 || height <= 0) return
 
-    var dpr = (Screen && Screen.devicePixelRatio) ? Screen.devicePixelRatio : 1
+    var dpr = root.deviceScale
     var snap = function(v) { return Math.round(v * dpr) / dpr }
     var list = Array.isArray(root.series) ? root.series : []
     var count = list.length

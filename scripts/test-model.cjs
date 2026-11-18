@@ -513,3 +513,48 @@ test("power totals prefer what measures the whole machine", () => {
   assert.deepEqual(plain(model.wattsParts(null)), { value: "—", unit: "" });
   assert.deepEqual(plain(model.wattsParts(8.25)), { value: "8.3", unit: "W" });
 });
+
+// IBM Plex Sans Bold's "W", as TextMetrics reports it: at 9 px its tight
+// bounds round 6.29 px out to 7; at 8 px, hinted at a ratio of 1, it is
+// drawn 5 px tall, shorter than its 5.59 px outline.
+const plex9 = { ascent: 9.21875, top: 7, height: 7, outlineTop: 6.29, outlineHeight: 6.29 };
+const plex8Hinted = { ascent: 8.1875, top: 5, height: 5, outlineTop: 5.59, outlineHeight: 5.59 };
+
+test("bar snapping uses the window's ratio, which can be fractional", () => {
+  assert.equal(model.deviceScale({ devicePixelRatio: 1.6 }), 1.6);
+  assert.equal(model.deviceScale({ devicePixelRatio: 0 }), 1);
+  assert.equal(model.deviceScale(null), 1);
+  const screenRatio = /Screen\.devicePixelRatio/;
+  for (const name of ["StackLabel", "HistoryGraph", "MirrorGraph"]) {
+    assert.doesNotMatch(fs.readFileSync(path.join(__dirname, `../ui/${name}.qml`), "utf8"), screenRatio, name);
+  }
+});
+
+test("stacked letters are centred in their label and sit on the graph's baseline", () => {
+  // At 1.6 the letters used to sit 1.2 device px low: Screen's ratio of 2 and
+  // the 7 px bounds made the shift 2.0 instead of about 2.9.
+  assert.deepEqual(plain(model.stackRows(plex9, 1.6)), { rowHeight: 6.875, rowStep: 7.5, shift: 2.5 });
+  for (const scale of [1.25, 1.5, 1.6, 1.75, 2]) {
+    const rows = model.stackRows(plex9, scale);
+    const box = rows.rowHeight + 2 * rows.rowStep;
+    const inkTop = plex9.ascent - rows.shift - plex9.outlineTop;
+    const baseline = inkTop + 2 * rows.rowStep + plex9.outlineHeight;
+    assert.ok(Math.abs((inkTop + baseline) / 2 - box / 2) <= 0.5 / scale + 1e-9, `centred at ${scale}`);
+    // A graph beside the label is as tall, with a 1 px baseline at its foot.
+    assert.ok(baseline >= box - 1 && baseline <= box, `on the graph's baseline at ${scale}`);
+    assert.equal(Math.round(rows.rowStep * scale * 1e6) % 1e6, 0, `rows a whole number of device pixels at ${scale}`);
+  }
+});
+
+test("hinted capitals at a ratio of 1 keep their rows and shift", () => {
+  // The outline would make the 8 px rows a pixel taller.
+  assert.deepEqual(plain(model.stackRows(plex8Hinted, 1)), { rowHeight: 5, rowStep: 6, shift: 3 });
+  assert.deepEqual(plain(model.stackRows(plex9, 1)), { rowHeight: 7, rowStep: 8, shift: 2 });
+});
+
+test("two-line rates are centred by their figures, not their line boxes", () => {
+  // A 10 px caption with lineHeight 0.95: 3.27 px above the capitals, 2.1
+  // under the baseline.
+  assert.ok(Math.abs(model.inkOffset(10.25, 12.35, 6.98) + 0.585) < 1e-9);
+  assert.equal(model.inkOffset(10, 13, 7), 0);
+});

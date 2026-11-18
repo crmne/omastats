@@ -1065,6 +1065,45 @@ function volumeName(mount) {
   return parts[parts.length - 1] || m
 }
 
+// --------------------------------------------------------- bar alignment
+
+// The ratio to snap to device pixels with: a window's own. Screen's is a
+// whole number on a fractional-scale output (2 on a 1.6 one).
+function deviceScale(window) {
+  var ratio = window ? Number(window.devicePixelRatio) : 0
+  return ratio > 0 ? ratio : 1
+}
+
+// A stacked label's rows, in logical pixels, from its capital's tight bounds
+// measured at its size (whole pixels, rounded outward: 7 for a capital 6.29
+// px tall) and at a hundred times its size (the outline). A ratio of 1 keeps
+// the whole-pixel bounds, since Qt can hint glyphs to whole pixels there and
+// draw them shorter than their outline; any other ratio draws the outline,
+// so it uses that. Rows are whole device pixels tall
+// with one between letters. The text moves up by the leading above the
+// capitals, less half of what the last row is rounded up by, so the letters
+// sit in the middle of the label and on the baseline of a graph as tall.
+function stackRows(cap, scale) {
+  var s = scale > 0 ? scale : 1
+  var top = s === 1 ? cap.top : cap.outlineTop
+  var height = s === 1 ? cap.height : cap.outlineHeight
+  var rowHeight = Math.ceil(height * s) / s
+  var leading = Math.max(0, cap.ascent - top)
+  return {
+    rowHeight: rowHeight,
+    rowStep: (Math.ceil(rowHeight * s) + 1) / s,
+    shift: Math.round((leading - (rowHeight - height) / 2) * s) / s
+  }
+}
+
+// Lines with a lineHeight below 1 are trimmed only underneath, so a column of
+// them has more room above its capitals (the ascent less the cap height) than
+// under its last baseline. This moves it by half the difference, so the
+// figures are centred rather than their line boxes.
+function inkOffset(baseline, lineHeight, capHeight) {
+  return ((lineHeight - baseline) - (baseline - capHeight)) / 2
+}
+
 // ------------------------------------------------------------- disk groups
 
 var VOLUME_KINDS = [
