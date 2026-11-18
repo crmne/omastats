@@ -87,7 +87,8 @@ counted. A laptop's battery cards follow below.
 Peripheral batteries (a Bluetooth mouse or keyboard, a stylus) refresh every
 ten minutes, and a failed read is retried after 30 seconds. Reading one makes
 the kernel ask the device, and some devices, such as Apple's Magic Mouse,
-disconnect when asked every second.
+disconnect when asked every second. A battery that reports itself absent, like
+the pen battery a touchscreen advertises before a pen is paired, is not read.
 
 Memory pressure is the share of the last ten seconds in which some task was
 waiting for memory (reclaim, swap-in, decompression), from

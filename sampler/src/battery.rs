@@ -141,8 +141,11 @@ pub fn sample_battery() -> Value {
             "peripherals": [{ "name": "MX Master 3S", "percent": 70, "status": "Discharging" }],
         });
     }
+    sample_power_supplies("/sys/class/power_supply")
+}
 
-    let base = "/sys/class/power_supply";
+/// Samples the power supplies under `base`; see [`sample_battery`].
+fn sample_power_supplies(base: &str) -> Value {
     let entries = list_dir(base);
     if entries.is_empty() {
         return Value::Null;
@@ -171,6 +174,13 @@ pub fn sample_battery() -> Value {
             || entry.starts_with("wacom")
             || (!entry.starts_with("BAT") && !has_energy);
         if is_device {
+            // An absent battery, such as an unpaired stylus's on a
+            // touchscreen, is skipped: reading its capacity or status would
+            // query the device, and a touchscreen may answer with an error
+            // the kernel logs each time. Reading `present` does not query it.
+            if read_i64(format!("{path}/present")) == Some(0) {
+                continue;
+            }
             // capacity/status/model are read by device_peripherals() below,
             // throttled per device: on a Bluetooth HID device every live
             // read talks to the device (see DEVICE_BATTERY_TTL). The
@@ -334,6 +344,26 @@ mod tests {
         let soon = DEVICE_BATTERY_TTL + DEVICE_BATTERY_RETRY;
         assert_eq!(read(&mut cache, soon - Duration::from_secs(1))[0]["percent"], 50);
         assert_eq!(read(&mut cache, soon)[0]["percent"], 40);
+        fs::remove_dir_all(&base).unwrap();
+    }
+
+    #[test]
+    fn an_absent_peripheral_battery_is_never_read() {
+        let base = fixture("absent");
+        for (entry, present, capacity) in [
+            ("hid-0018:04F3:2F5E.0002-battery-11", "0", "50"),
+            ("hid-mouse-battery", "1", "80"),
+        ] {
+            write(&base, entry, "type", "Battery\n");
+            write(&base, entry, "scope", "Device\n");
+            write(&base, entry, "present", present);
+            write(&base, entry, "capacity", capacity);
+        }
+
+        let battery = sample_power_supplies(base.to_str().unwrap());
+        assert_eq!(battery["present"], false);
+        assert_eq!(battery["peripherals"].as_array().unwrap().len(), 1);
+        assert_eq!(battery["peripherals"][0]["name"], "hid-mouse-battery");
         fs::remove_dir_all(&base).unwrap();
     }
 

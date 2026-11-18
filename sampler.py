@@ -2023,10 +2023,10 @@ def device_peripherals(base: str, entries: list[str], cache: dict | None = None,
     return peripherals
 
 
-def sample_battery() -> dict | None:
-    """Samples /sys/class/power_supply: at most one system battery in full
-    detail plus peripheral records from device_peripherals(); None if empty."""
-    base = "/sys/class/power_supply"
+def sample_battery(base: str = "/sys/class/power_supply") -> dict | None:
+    """Samples the power supplies under base: at most one system battery in
+    full detail plus peripheral records from device_peripherals(); None if
+    empty."""
     if os.environ.get("OMASTATS_FAKE_BATTERY"):
         phase = (time.time() / 4) % 100
         return {
@@ -2053,7 +2053,13 @@ def sample_battery() -> dict | None:
         if ptype != "Battery":
             continue
         scope = read_text(f"{path}/scope")
-        if scope == "Device" or entry.startswith(("hid", "wacom")) or (not entry.startswith("BAT") and read_int(f"{path}/present", 1) == 1 and read_int(f"{path}/energy_full") is None and read_int(f"{path}/charge_full") is None):
+        if scope == "Device" or entry.startswith(("hid", "wacom")) or (not entry.startswith("BAT") and read_int(f"{path}/energy_full") is None and read_int(f"{path}/charge_full") is None):
+            # An absent battery, such as an unpaired stylus's on a touchscreen,
+            # is skipped: reading its capacity or status would query the
+            # device, and a touchscreen may answer with an error the kernel
+            # logs each time. Reading present does not query it.
+            if read_int(f"{path}/present") == 0:
+                continue
             # capacity/status/model are read by device_peripherals() below,
             # throttled per device: on a Bluetooth HID device every live read
             # talks to the device. The peripheral limit applies to successful

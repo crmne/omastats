@@ -54,5 +54,20 @@ class DeviceBatteryTests(unittest.TestCase):
             self.assertNotIn("hid-a-battery", cache)
 
 
+class PowerSupplyTests(unittest.TestCase):
+    def test_an_absent_peripheral_battery_is_never_read(self):
+        with tempfile.TemporaryDirectory() as base:
+            for entry, present, capacity in (("hid-0018:04F3:2F5E.0002-battery-11", "0", "50"),
+                                             ("hid-mouse-battery", "1", "80")):
+                write(base, entry, "type", "Battery\n")
+                write(base, entry, "scope", "Device\n")
+                write(base, entry, "present", present)
+                write(base, entry, "capacity", capacity)
+            NAMESPACE["_device_battery_cache"] = None
+            battery = NAMESPACE["sample_battery"](base)
+        self.assertEqual(battery["present"], False)
+        self.assertEqual([p["name"] for p in battery["peripherals"]], ["hid-mouse-battery"])
+
+
 if __name__ == "__main__":
     unittest.main()
