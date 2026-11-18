@@ -265,5 +265,33 @@ class PowerSamplerTests(unittest.TestCase):
             self.assertEqual(sampler.sample()["zones"], {"core": 15.0, "dram": 2.0})
 
 
+class AppleSmcTests(unittest.TestCase):
+    def test_fans_come_from_the_acpi_device(self):
+        with tempfile.TemporaryDirectory() as smc:
+            Path(smc, "fan1_input").write_text("4123\n")
+            Path(smc, "fan1_label").write_text("Leftside")
+            Path(smc, "fan2_input").write_text("3890\n")
+            Path(smc, "temp1_input").write_text("45000\n")
+            chip = NAMESPACE["applesmc_chip"](smc)
+        self.assertEqual(chip["name"], "applesmc")
+        self.assertEqual(NAMESPACE["SensorSampler"]._pretty_chip(chip["name"]), "SMC")
+        self.assertEqual([(f["key"], f["label"]) for f in chip["fans"]], [("fan1", "Leftside"), ("fan2", "")])
+        self.assertEqual(chip["temps"], [])
+
+    def test_an_smc_without_fans_is_not_a_chip(self):
+        with tempfile.TemporaryDirectory() as smc:
+            Path(smc, "temp1_input").write_text("45000\n")
+            self.assertIsNone(NAMESPACE["applesmc_chip"](smc))
+        self.assertIsNone(NAMESPACE["applesmc_chip"]("/nonexistent/APP0001:00"))
+
+    def test_gpu_fans_are_dropped_beside_the_smc(self):
+        gpu = {"name": "amdgpu", "temps": [{"key": "temp1"}], "fans": [{"key": "fan1"}]}
+        board = {"name": "nct6687", "temps": [], "fans": [{"key": "fan1"}]}
+        chips = NAMESPACE["without_phantom_gpu_fans"]([gpu, board])
+        self.assertEqual(chips[0]["fans"], [])
+        self.assertEqual(chips[0]["temps"], [{"key": "temp1"}])
+        self.assertEqual(chips[1]["fans"], [{"key": "fan1"}])
+
+
 if __name__ == "__main__":
     unittest.main()
