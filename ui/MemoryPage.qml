@@ -207,6 +207,7 @@ Column {
 
     ProcessList {
       host: root.host
+      actions: root.host ? root.host.processActions : null
       items: root.procs ? (root.procs.mem || []) : []
       allItems: root.procs ? (root.procs.all || []) : []
       total: root.procs ? Model.num(root.procs.total) : 0

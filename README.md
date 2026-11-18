@@ -82,6 +82,17 @@ waiting for memory (reclaim, swap-in, decompression), from
 `/proc/pressure/memory`; the ring's caption is the share in which every task
 was. Used memory alone cannot say whether a machine is short of it; stalls can.
 
+On the Memory page, the arrow in a process group opens its members, with PID,
+resident memory and Hyprland windows. A window's × sends a normal close request.
+The × for a process with no client in the current Hyprland session asks before
+sending `SIGTERM`. **Close group…** shows how many windows and background
+processes you are about to act on. It uses only the confirmed selection and skips
+targets that exit or change before the request. Actions are available for
+processes owned by your user, with session-critical processes protected. A
+truncated group offers individual actions only. Window closing uses Hyprland's
+stable window IDs. Process actions require a readable list of Hyprland clients
+and Linux pidfd support.
+
 The Disks page groups volumes as internal, external (USB, removable, or behind
 a port the firmware marks external, such as Thunderbolt) and network (NFS, SMB,
 SSHFS, rclone and other remote filesystems). A network share that stops

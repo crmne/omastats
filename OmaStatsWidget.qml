@@ -98,6 +98,13 @@ Panel {
   property var searchField: null
   property bool fullHeld: false
 
+  // Keep an already confirmed request running when its page is unloaded.
+  readonly property alias processActions: memoryActions
+  UI.ProcessActions {
+    id: memoryActions
+    available: root.opened && root.currentTab === "memory" && Model.flag(root.settings, "showProcesses")
+  }
+
   function setProcessesExpanded(value) {
     processesExpanded = value === true
     if (!processesExpanded) {

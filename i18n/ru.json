@@ -1,0 +1,31 @@
+{
+  "processGroup.show": "Показать процессы группы",
+  "processGroup.hide": "Скрыть процессы группы",
+  "processGroup.closeGroupTooltip": "Закрыть группу…",
+  "processGroup.closeGroup": "Закрыть группу",
+  "processGroup.closeGroupPrompt": "Закрыть доступные окна и процессы группы «%1»?",
+  "processGroup.closeWindow": "Закрыть окно",
+  "processGroup.terminateProcess": "Завершить процесс…",
+  "processGroup.terminatePrompt": "Завершить процесс с PID %1?",
+  "processGroup.terminate": "Завершить",
+  "processGroup.pid": "PID %1",
+  "processGroup.untitledWindow": "Окно без заголовка",
+  "processGroup.loading": "Загрузка процессов…",
+  "processGroup.empty": "В этой группе нет процессов",
+  "processGroup.noActions": "Для этой группы нет доступных действий",
+  "processGroup.failed": "Не удалось выполнить действие",
+  "processGroup.windowListUnavailable": "Для действий нужен список окон Hyprland.",
+  "processGroup.truncated": "Показана часть группы. Выберите отдельный процесс или окно.",
+  "processGroup.closeWindows": {
+    "one": "Закрыть %1 окно", "few": "Закрыть %1 окна", "many": "Закрыть %1 окон", "other": "Закрыть %1 окна"
+  },
+  "processGroup.terminateProcesses": {
+    "one": "Завершить %1 процесс", "few": "Завершить %1 процесса", "many": "Завершить %1 процессов", "other": "Завершить %1 процесса"
+  },
+  "processGroup.sent": {
+    "one": "Отправлен %1 запрос", "few": "Отправлено %1 запроса", "many": "Отправлено %1 запросов", "other": "Отправлено %1 запроса"
+  },
+  "processGroup.skipped": {
+    "one": "Пропущена %1 цель", "few": "Пропущено %1 цели", "many": "Пропущено %1 целей", "other": "Пропущено %1 цели"
+  }
+}

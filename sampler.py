@@ -2008,12 +2008,16 @@ def sample_battery() -> dict | None:
 
 def display_name(pid: int, comm: str) -> str:
     """A readable name: the kernel's 15-char comm, or the executable's basename."""
-    if len(comm) < 15:
-        return bounded_text(comm)
+    # comm is truncated by bytes. Match the native sampler's prefix and size
+    # checks so both samplers agree on the group of a multibyte name.
+    comm_bytes = comm.encode("utf-8")
+    if len(comm_bytes) < 15:
+        return comm
     cmdline = read_text(f"/proc/{pid}/cmdline").split("\0")[0]
     if cmdline:
         base = os.path.basename(cmdline)
-        if base.startswith(comm[:8]) or len(base) > len(comm):
+        base_bytes = base.encode("utf-8")
+        if base_bytes.startswith(comm_bytes[:8]) or len(base_bytes) > len(comm_bytes):
             return bounded_text(base)
     return bounded_text(comm)
 
