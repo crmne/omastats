@@ -77,6 +77,11 @@ in that order. Otherwise it is the CPU package plus the discrete GPUs, and is
 labelled as such, since fans, drives and the rest of the board are not
 counted. A laptop's battery cards follow below.
 
+Peripheral batteries (a Bluetooth mouse or keyboard, a stylus) refresh every
+ten minutes, and a failed read is retried after 30 seconds. Reading one makes
+the kernel ask the device, and some devices, such as Apple's Magic Mouse,
+disconnect when asked every second.
+
 Memory pressure is the share of the last ten seconds in which some task was
 waiting for memory (reclaim, swap-in, decompression), from
 `/proc/pressure/memory`; the ring's caption is the share in which every task
