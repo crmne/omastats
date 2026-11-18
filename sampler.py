@@ -1937,16 +1937,19 @@ def read_device_battery(base: str, entry: str) -> dict | None:
     return {"name": model or bounded_text(entry), "percent": capacity, "status": status}
 
 
-def device_peripherals(base: str, entries: list[str]) -> list[dict]:
+def device_peripherals(base: str, entries: list[str], cache: dict | None = None,
+                       now: float | None = None) -> list[dict]:
     """Peripheral battery records for entries, reading each device at most once
     per DEVICE_BATTERY_TTL (failed reads retry after DEVICE_BATTERY_RETRY and
     keep the last good value). Devices are cached individually and reconciled
     per call: vanished ones are dropped, new ones read immediately."""
     global _device_battery_cache
-    if _device_battery_cache is None:
-        _device_battery_cache = {}
-    cache = _device_battery_cache
-    now = time.monotonic()
+    if cache is None:
+        if _device_battery_cache is None:
+            _device_battery_cache = {}
+        cache = _device_battery_cache
+    if now is None:
+        now = time.monotonic()
 
     # Reconcile with the live device list so replaced/removed devices do not
     # linger in the cache for a full TTL.
@@ -1958,13 +1961,13 @@ def device_peripherals(base: str, entries: list[str]) -> list[dict]:
         record = cache.get(entry)
         if record is None:
             stale = True
-        elif record["value"] is None:
-            stale = now - record["attempt"] >= DEVICE_BATTERY_RETRY
         else:
-            stale = now - record["ok"] >= DEVICE_BATTERY_TTL
+            # After a failed read, the last good value stays and the device is
+            # asked again after DEVICE_BATTERY_RETRY, not on every sample.
+            failed = record["value"] is None or record["attempt"] > record["ok"]
+            stale = now - record["attempt"] >= (DEVICE_BATTERY_RETRY if failed else DEVICE_BATTERY_TTL)
         if stale:
             value = read_device_battery(base, entry)
-            now = time.monotonic()
             if record is None:
                 record = cache[entry] = {"value": None, "ok": now, "attempt": now}
             record["attempt"] = now

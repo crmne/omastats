@@ -55,18 +55,31 @@ fn read_device_battery(base: &str, entry: &str) -> Option<Value> {
     }))
 }
 
+/// Returns peripheral battery records for `entries`, through the shared
+/// cache: see [`cached_peripherals`].
+fn device_peripherals(base: &str, entries: &[String]) -> Vec<Value> {
+    let mut guard = DEVICE_BATTERY_CACHE
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    cached_peripherals(
+        guard.get_or_insert_with(HashMap::new),
+        base,
+        entries,
+        Instant::now(),
+    )
+}
+
 /// Returns peripheral battery records for `entries`, reading each device at
 /// most once per `DEVICE_BATTERY_TTL` (failed reads retry after
 /// `DEVICE_BATTERY_RETRY` and keep the last good value). Devices are cached
 /// individually and reconciled per call: vanished devices are dropped, new
 /// ones are read immediately. `PERIPHERAL_LIMIT` applies to records returned.
-fn device_peripherals(base: &str, entries: &[String]) -> Vec<Value> {
-    let now = Instant::now();
-    let mut guard = DEVICE_BATTERY_CACHE
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-    let cache = guard.get_or_insert_with(HashMap::new);
-
+fn cached_peripherals(
+    cache: &mut HashMap<String, DeviceBattery>,
+    base: &str,
+    entries: &[String],
+    now: Instant,
+) -> Vec<Value> {
     // Reconcile with the live device list so replaced/removed devices do not
     // linger in the cache for a full TTL.
     cache.retain(|entry, _| entries.iter().any(|live| live == entry));
@@ -75,10 +88,18 @@ fn device_peripherals(base: &str, entries: &[String]) -> Vec<Value> {
     for entry in entries {
         let stale = match cache.get(entry) {
             None => true,
-            Some(device) => match device.value {
-                Some(_) => now.duration_since(device.last_ok) >= DEVICE_BATTERY_TTL,
-                None => now.duration_since(device.last_attempt) >= DEVICE_BATTERY_RETRY,
-            },
+            Some(device) => {
+                // After a failed read, the last good value stays and the
+                // device is asked again after DEVICE_BATTERY_RETRY, not on
+                // every sample.
+                let failed = device.value.is_none() || device.last_attempt > device.last_ok;
+                let wait = if failed {
+                    DEVICE_BATTERY_RETRY
+                } else {
+                    DEVICE_BATTERY_TTL
+                };
+                now.duration_since(device.last_attempt) >= wait
+            }
         };
         if stale {
             let record = read_device_battery(base, entry);
@@ -249,5 +270,87 @@ pub fn sample_battery() -> Value {
             sys["peripherals"] = json!(peripherals);
             sys
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use std::path::{Path, PathBuf};
+
+    fn fixture(test: &str) -> PathBuf {
+        let base = std::env::temp_dir().join(format!(
+            "omastats-battery-{test}-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&base);
+        fs::create_dir_all(&base).unwrap();
+        base
+    }
+
+    fn write(base: &Path, entry: &str, attribute: &str, value: &str) {
+        let dir = base.join(entry);
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join(attribute), value).unwrap();
+    }
+
+    #[test]
+    fn a_device_battery_is_read_once_per_ttl() {
+        let base = fixture("ttl");
+        write(&base, "hid-mouse-battery", "capacity", "80\n");
+        write(&base, "hid-mouse-battery", "model_name", "Magic Mouse\n");
+        let entries = ["hid-mouse-battery".to_string()];
+        let mut cache = HashMap::new();
+        let start = Instant::now();
+        let read = |cache: &mut HashMap<String, DeviceBattery>, at: Duration| {
+            cached_peripherals(cache, base.to_str().unwrap(), &entries, start + at)
+        };
+
+        let first = read(&mut cache, Duration::ZERO);
+        assert_eq!(first[0]["name"], "Magic Mouse");
+        assert_eq!(first[0]["percent"], 80);
+        write(&base, "hid-mouse-battery", "capacity", "79\n");
+        assert_eq!(read(&mut cache, Duration::from_secs(599))[0]["percent"], 80);
+        assert_eq!(read(&mut cache, DEVICE_BATTERY_TTL)[0]["percent"], 79);
+        fs::remove_dir_all(&base).unwrap();
+    }
+
+    #[test]
+    fn a_failed_read_keeps_the_last_value_and_is_retried_sooner() {
+        let base = fixture("retry");
+        write(&base, "hid-mouse-battery", "capacity", "50\n");
+        let entries = ["hid-mouse-battery".to_string()];
+        let mut cache = HashMap::new();
+        let start = Instant::now();
+        let read = |cache: &mut HashMap<String, DeviceBattery>, at: Duration| {
+            cached_peripherals(cache, base.to_str().unwrap(), &entries, start + at)
+        };
+
+        assert_eq!(read(&mut cache, Duration::ZERO)[0]["percent"], 50);
+        fs::remove_file(base.join("hid-mouse-battery/capacity")).unwrap();
+        assert_eq!(read(&mut cache, DEVICE_BATTERY_TTL)[0]["percent"], 50);
+        write(&base, "hid-mouse-battery", "capacity", "40\n");
+        let soon = DEVICE_BATTERY_TTL + DEVICE_BATTERY_RETRY;
+        assert_eq!(read(&mut cache, soon - Duration::from_secs(1))[0]["percent"], 50);
+        assert_eq!(read(&mut cache, soon)[0]["percent"], 40);
+        fs::remove_dir_all(&base).unwrap();
+    }
+
+    #[test]
+    fn devices_follow_the_live_list() {
+        let base = fixture("live");
+        write(&base, "hid-a-battery", "capacity", "10\n");
+        write(&base, "hid-b-battery", "capacity", "20\n");
+        let path = base.to_str().unwrap();
+        let mut cache = HashMap::new();
+        let now = Instant::now();
+
+        cached_peripherals(&mut cache, path, &["hid-a-battery".to_string()], now);
+        assert!(cache.contains_key("hid-a-battery"));
+        let b = cached_peripherals(&mut cache, path, &["hid-b-battery".to_string()], now);
+        assert!(!cache.contains_key("hid-a-battery"));
+        assert_eq!(b[0]["percent"], 20);
+        fs::remove_dir_all(&base).unwrap();
     }
 }
