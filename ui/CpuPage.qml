@@ -52,6 +52,7 @@ Column {
     }
 
     HistoryGraph {
+      historyLength: root.service ? root.service.historyLength : 240
       width: parent.width
       height: Style.space(64)
       series: [root.hist.cpuUser || [], root.hist.cpuSystem || []]
