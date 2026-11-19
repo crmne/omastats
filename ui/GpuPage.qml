@@ -54,6 +54,7 @@ Column {
       }
 
       HistoryGraph {
+        historyLength: root.service ? root.service.historyLength : 240
         width: parent.width
         visible: gpuCard.hasUtil
         height: visible ? Style.space(64) : 0
@@ -75,6 +76,7 @@ Column {
       }
 
       HistoryGraph {
+        historyLength: root.service ? root.service.historyLength : 240
         width: parent.width
         visible: gpuCard.hasMemory
         height: visible ? Style.space(64) : 0

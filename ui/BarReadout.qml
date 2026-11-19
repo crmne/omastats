@@ -550,6 +550,7 @@ WidgetButton {
     id: historyGraph
 
     HistoryGraph {
+      historyLength: root.service ? root.service.historyLength : 240
       width: root.pictureWidth
       height: root.graphHeight
       barWidth: 1
@@ -577,6 +578,7 @@ WidgetButton {
     id: mirrorGraph
 
     MirrorGraph {
+      historyLength: root.service ? root.service.historyLength : 240
       width: root.pictureWidth
       height: root.graphHeight
       barWidth: 1

@@ -111,6 +111,7 @@ Column {
     }
 
     HistoryGraph {
+      historyLength: root.service ? root.service.historyLength : 240
       width: parent.width
       height: Style.space(56)
       series: [root.chargeHistory.charging, root.chargeHistory.discharging]

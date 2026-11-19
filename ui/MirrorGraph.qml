@@ -18,6 +18,7 @@ Canvas {
   property real headroom: 1.08
   property int barWidth: 2
   property int gap: 1
+  property int historyLength: 240
   property color midlineColor: Util.alpha(Commons.Color.popups.text, 0.18)
 
   readonly property int pitch: Math.max(1, barWidth + gap)
@@ -44,6 +45,7 @@ Canvas {
   onDownChanged: requestPaint()
   onUpColorChanged: requestPaint()
   onDownColorChanged: requestPaint()
+  onHistoryLengthChanged: requestPaint()
   onWidthChanged: requestPaint()
   onHeightChanged: requestPaint()
   onMidlineColorChanged: requestPaint()
@@ -57,7 +59,8 @@ Canvas {
 
     var dpr = root.deviceScale
     var snap = function(v) { return Math.round(v * dpr) / dpr }
-    var n = root.capacity
+    var n = Math.min(root.capacity, Math.max(1, root.historyLength))
+    var step = root.historyLength < root.capacity ? (width + root.gap) / Math.max(1, root.historyLength) : root.pitch
     var upList = Array.isArray(root.up) ? root.up : []
     var downList = Array.isArray(root.down) ? root.down : []
     var len = Math.max(upList.length, downList.length)
@@ -74,8 +77,8 @@ Canvas {
         if (v <= 0) continue
         var h = Math.min(half, v / max * half)
         if (h < 1 / dpr) h = 1 / dpr
-        var x = snap(width - (n - b) * root.pitch + root.gap)
-        var w = Math.max(1 / dpr, snap(root.barWidth))
+        var x = snap(width - (n - b) * step + root.gap)
+        var w = Math.max(1 / dpr, snap(step - root.gap))
         if (direction < 0) {
           var top = snap(mid - h)
           ctx.fillRect(x, top, w, mid - top)

@@ -212,6 +212,10 @@ Open the panel and click the gear at the right end of the tab strip (or press `s
   (30 s to 1 h, in steps such as 4, 10 and 30 minutes),
   bar graph width, optional utilization colors, and a reset.
 
+Wide graphs use the configured history length to fill the available width.
+While history builds, new samples appear on the right. Narrow graphs show the
+newest samples that fit.
+
 Utilization colors are off by default. When enabled, they grade CPU, GPU load,
 GPU memory, and system memory bar figures and graph samples. The GPU tab's load
 and VRAM histories use the same grades. CPU, GPU load, GPU memory, system memory,
