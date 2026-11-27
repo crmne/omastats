@@ -114,7 +114,7 @@ for each:
 
 | Problem | Found by | Fix |
 |---------|----------|-----|
-| TRIM never reaches an SSD under an encrypted volume | the dm-crypt device accepts no discards while the drive under it does | `cryptsetup refresh --allow-discards --persistent` (LUKS2) |
+| TRIM never reaches an SSD under an encrypted volume | the dm-crypt device accepts no discards while the drive under it does | `cryptsetup refresh --allow-discards --persistent` (LUKS2), then `fstrim -v` on that volume only |
 | Free space is never trimmed | an SSD mounted without `discard` while `fstrim.timer` is off | `systemctl enable --now fstrim.timer` |
 | Every file written to a FAT drive waits for it | a FAT volume mounted with `flush`, `sync` or `dirsync` | for a UDisks mount, a section in `/etc/udisks2/mount_options.conf` that mounts it without them, then a remount |
 

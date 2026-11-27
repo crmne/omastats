@@ -74,8 +74,8 @@ Column {
     if (host && typeof host.close === "function") host.close()
   }
 
-  function runFix(check) {
-    var argv = Model.fixCommand(check)
+  function runFix(check, volume) {
+    var argv = Model.fixCommand(check, volume)
     if (!argv) return
     Util.execArgv(argv)
     if (host && typeof host.close === "function") host.close()
@@ -423,7 +423,7 @@ Column {
         required property int index
         readonly property var entry: root.shownChecks[index] || ({})
         readonly property var words: Model.checkText(entry.check)
-        readonly property var command: Model.fixCommand(entry.check)
+        readonly property var command: Model.fixCommand(entry.check, entry.volume)
 
         width: parent.width
         height: Math.max(checkText.implicitHeight, fixButton.visible ? fixButton.implicitHeight : 0)
@@ -469,7 +469,7 @@ Column {
           foreground: root.foreground
           fontFamily: root.fontFamily
           fontSize: Style.font.bodySmall
-          onClicked: root.runFix(checkRow.entry.check)
+          onClicked: root.runFix(checkRow.entry.check, checkRow.entry.volume)
         }
       }
     }

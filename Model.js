@@ -1200,13 +1200,16 @@ function checkText(check) {
 var FIX_SCRIPTS = {
   "allow-discards": {
     args: 1,
+    // The volume's mount point follows as $2, so the trim after the fix
+    // reaches that volume only, never every mounted filesystem.
+    mount: true,
     body: 'echo "Let TRIM pass through the encrypted volume $1 to the SSD."\n'
       + 'echo "This runs: sudo cryptsetup refresh --allow-discards --persistent $1"\n'
       + 'echo "The setting is stored in the LUKS header, so it lasts across reboots."\n'
+      + 'if [ -n "$2" ]; then echo "Then it trims the free space of $2 only: sudo fstrim -v $2"; fi\n'
       + 'confirm || exit 1\n'
       + 'sudo cryptsetup refresh --allow-discards --persistent "$1" || exit 1\n'
-      + 'echo "Trimming free space now:"\n'
-      + 'sudo fstrim -av\n'
+      + 'if [ -n "$2" ]; then echo "Trimming the free space of $2 now:"; sudo fstrim -v "$2"; fi\n'
   },
   "enable-fstrim": {
     args: 0,
@@ -1239,16 +1242,23 @@ function fixArgOk(value) {
 }
 
 // The command a Fix button runs, as argv, or null when the check has no fix
-// or its arguments are not plain names.
-function fixCommand(check) {
+// or its arguments are not plain names. A fix that trims gets the volume's
+// mount point as its last argument, or an empty one when the mount point is
+// not a plain name, and then trims nothing.
+function fixCommand(check, volume) {
   var c = check || {}
   var spec = FIX_SCRIPTS[String(c.fix || "")]
   if (!spec) return null
   var args = Array.isArray(c.args) ? c.args : []
   if (args.length !== spec.args) return null
   for (var i = 0; i < args.length; i++) if (!fixArgOk(args[i])) return null
+  args = args.map(String)
+  if (spec.mount) {
+    var mount = volume && volume.mount !== undefined && volume.mount !== null ? String(volume.mount) : ""
+    args.push(mount.charAt(0) === "/" && fixArgOk(mount) ? mount : "")
+  }
   var script = FIX_PRELUDE + "(\n" + spec.body + ")\n" + FIX_EPILOGUE
-  return ["xdg-terminal-exec", "sh", "-c", script, "omastats-fix"].concat(args.map(String))
+  return ["xdg-terminal-exec", "sh", "-c", script, "omastats-fix"].concat(args)
 }
 
 // Checks on the volumes of one drive (by volumeKey), or on every volume for

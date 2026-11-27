@@ -386,7 +386,7 @@ test("a drive stalls the system only when busy while every task waits", () => {
 test("fix buttons run a known script with plain names as separate arguments", () => {
   const argv = plain(model.fixCommand({ id: "trim-blocked", fix: "allow-discards", args: ["root"] }));
   assert.deepEqual(argv.slice(0, 3), ["xdg-terminal-exec", "sh", "-c"]);
-  assert.deepEqual(argv.slice(4), ["omastats-fix", "root"]);
+  assert.deepEqual(argv.slice(4), ["omastats-fix", "root", ""]);
   assert.match(argv[3], /cryptsetup refresh --allow-discards --persistent "\$1"/);
   assert.match(argv[3], /confirm \|\| exit 1/);
   assert.equal(model.fixCommand({ fix: "allow-discards", args: ["root; rm -rf /"] }), null);
@@ -396,6 +396,20 @@ test("fix buttons run a known script with plain names as separate arguments", ()
   assert.deepEqual(plain(model.fixCommand({ fix: "udisks-no-flush", args: ["ABCD-1234", "/dev/sdd1"] })).slice(4),
     ["omastats-fix", "ABCD-1234", "/dev/sdd1"]);
   for (const id of ["trim-blocked", "trim-off", "fat-flush"]) assert.ok(model.checkText({ id }).title);
+});
+
+test("allowing TRIM trims only the volume it was found on, and says so before asking", () => {
+  const check = { id: "trim-blocked", fix: "allow-discards", args: ["root"] };
+  const argv = plain(model.fixCommand(check, { mount: "/home" }));
+  assert.deepEqual(argv.slice(4), ["omastats-fix", "root", "/home"]);
+  const script = argv[3];
+  assert.doesNotMatch(script, /fstrim -a/);
+  assert.match(script, /sudo fstrim -v "\$2"/);
+  const prompt = script.indexOf("confirm || exit 1");
+  assert.ok(script.indexOf("fstrim -v $2") !== -1 && script.indexOf("fstrim -v $2") < prompt);
+  for (const mount of ["/media/My Disk", "home", "/a/../b", ""]) {
+    assert.deepEqual(plain(model.fixCommand(check, { mount })).slice(4), ["omastats-fix", "root", ""]);
+  }
 });
 
 test("checks are listed for one drive or for all", () => {
