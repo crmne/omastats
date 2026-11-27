@@ -71,6 +71,7 @@ jobs:
           python scripts/test-gpu.py
           python scripts/test-disks.py
           python scripts/test-battery.py
+          python scripts/test-network.py
           python - <<'PY'
           from pathlib import Path
           import json

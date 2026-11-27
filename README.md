@@ -183,7 +183,8 @@ fix in a terminal, which may use `sudo`, `cryptsetup`, `udisksctl` and
 Nothing runs as root, and no data leaves the machine except the optional
 public-IP lookup, which you can switch off in Settings. That lookup tries
 `api.ipify.org`, `icanhazip.com`, then `ifconfig.me` over HTTPS and stops after
-the first valid IP-address response.
+the first valid IP-address response. It follows no redirects, takes only a
+successful answer, and stops reading an answer longer than 64 bytes.
 
 `make` builds the native binary and checksum into `bin/`. On x86-64 Linux,
 `make build-arm64` builds the portable ARM64 binary using a checksum-pinned

@@ -26,6 +26,7 @@ import subprocess
 import sys
 import threading
 import time
+import urllib.error
 import urllib.request
 
 CLK_TCK = os.sysconf("SC_CLK_TCK")
@@ -1574,6 +1575,39 @@ class DiskSampler:
 # ------------------------------------------------------------------------- Network
 
 
+PUBLIC_IP_URLS = ("https://api.ipify.org", "https://icanhazip.com", "https://ifconfig.me/ip")
+
+
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Refuse redirects, so only the listed endpoints are contacted and a
+    redirect's body is never read: urllib reads it whole before following."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: ARG002
+        return None
+
+
+PUBLIC_IP_OPENER = urllib.request.build_opener(NoRedirect)
+
+
+def lookup_public_ip(urls) -> str:
+    """The first valid address one of the endpoints answers with, reading at
+    most 65 bytes of each response, or "" when none does."""
+    for url in urls:
+        try:
+            with PUBLIC_IP_OPENER.open(url, timeout=5) as response:
+                if response.status != 200:
+                    continue
+                raw = response.read(65)
+            candidate = raw.decode("utf-8", "replace").strip()
+            if len(raw) <= 64 and re.fullmatch(r"[0-9a-fA-F.:]+", candidate):
+                return candidate
+        except urllib.error.HTTPError as error:
+            error.close()
+        except Exception:
+            continue
+    return ""
+
+
 class NetworkSampler:
     def __init__(self) -> None:
         self.prev: dict[str, tuple[int, int]] = {}
@@ -1651,17 +1685,7 @@ class NetworkSampler:
             self.public_inflight = True
 
         def worker() -> None:
-            result = ""
-            for url in ("https://api.ipify.org", "https://icanhazip.com", "https://ifconfig.me/ip"):
-                try:
-                    with urllib.request.urlopen(url, timeout=5) as response:
-                        raw = response.read(65)
-                        candidate = raw.decode("utf-8", "replace").strip()
-                    if len(raw) <= 64 and re.fullmatch(r"[0-9a-fA-F.:]+", candidate):
-                        result = candidate
-                        break
-                except Exception:
-                    continue
+            result = lookup_public_ip(PUBLIC_IP_URLS)
             with self.public_lock:
                 self.public_ip = result
                 self.public_stamp = time.time()

@@ -148,30 +148,7 @@ impl NetworkSampler {
         }
         let shared = Arc::clone(&self.public);
         std::thread::spawn(move || {
-            let mut result = String::new();
-            if which("curl") {
-                for url in [
-                    "https://api.ipify.org",
-                    "https://icanhazip.com",
-                    "https://ifconfig.me/ip",
-                ] {
-                    let out = run(
-                        "curl",
-                        &["-s", "--max-time", "5", url],
-                        Duration::from_secs(7),
-                    );
-                    let candidate = out.trim();
-                    if !candidate.is_empty()
-                        && candidate.len() <= 64
-                        && candidate
-                            .bytes()
-                            .all(|b| b.is_ascii_hexdigit() || b == b'.' || b == b':')
-                    {
-                        result = candidate.to_string();
-                        break;
-                    }
-                }
-            }
+            let result = lookup_public_ip(&PUBLIC_IP_URLS);
             if let Ok(mut state) = shared.lock() {
                 state.value = result;
                 state.stamp = crate::util::now_secs();
@@ -299,5 +276,100 @@ impl NetworkSampler {
             "online": online || any_up,
             "publicIp": public_ip,
         })
+    }
+}
+
+const PUBLIC_IP_URLS: [&str; 3] = [
+    "https://api.ipify.org",
+    "https://icanhazip.com",
+    "https://ifconfig.me/ip",
+];
+
+/// The first valid address one of the endpoints answers with, or "" when none
+/// does. curl follows no redirects and stops reading an answer longer than 64
+/// bytes; only a 200 answer counts, never the body of a redirect or an error.
+fn lookup_public_ip(urls: &[&str]) -> String {
+    if !which("curl") {
+        return String::new();
+    }
+    for url in urls {
+        let out = run(
+            "curl",
+            &[
+                "-s",
+                "--max-redirs",
+                "0",
+                "--max-filesize",
+                "64",
+                "--max-time",
+                "5",
+                "--write-out",
+                "\n%{response_code}",
+                url,
+            ],
+            Duration::from_secs(7),
+        );
+        let Some((body, status)) = out.rsplit_once('\n') else {
+            continue;
+        };
+        if status != "200" {
+            continue;
+        }
+        let candidate = body.trim();
+        if !candidate.is_empty()
+            && candidate.len() <= 64
+            && candidate
+                .bytes()
+                .all(|b| b.is_ascii_hexdigit() || b == b'.' || b == b':')
+        {
+            return candidate.to_string();
+        }
+    }
+    String::new()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+
+    /// Serve one canned HTTP response per connection, `count` times.
+    fn serve(response: &'static str, count: usize) -> String {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        std::thread::spawn(move || {
+            for stream in listener.incoming().take(count) {
+                let mut stream = stream.unwrap();
+                let mut request = [0u8; 1024];
+                let _ = stream.read(&mut request);
+                let _ = stream.write_all(response.as_bytes());
+            }
+        });
+        format!("http://127.0.0.1:{port}/")
+    }
+
+    #[test]
+    fn public_ip_takes_a_plain_answer() {
+        if !which("curl") {
+            return;
+        }
+        let url = serve(
+            "HTTP/1.1 200 OK\r\nContent-Length: 12\r\nConnection: close\r\n\r\n203.0.113.7\n",
+            1,
+        );
+        assert_eq!(lookup_public_ip(&[&url]), "203.0.113.7");
+    }
+
+    #[test]
+    fn public_ip_ignores_redirects_and_their_bodies() {
+        if !which("curl") {
+            return;
+        }
+        let url = serve(
+            "HTTP/1.1 302 Found\r\nLocation: http://127.0.0.1:9/\r\nContent-Length: 11\r\nConnection: close\r\n\r\n192.0.2.66\n",
+            1,
+        );
+        assert_eq!(lookup_public_ip(&[&url]), "");
     }
 }
