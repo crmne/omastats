@@ -343,6 +343,7 @@ Column {
     }
 
     MirrorGraph {
+      historyLength: root.service ? root.service.historyLength : 240
       id: graph
       visible: !root.selectedNetwork
       width: parent.width

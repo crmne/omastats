@@ -116,6 +116,7 @@ Column {
     }
 
     MirrorGraph {
+      historyLength: root.service ? root.service.historyLength : 240
       id: graph
       width: parent.width
       height: Style.space(72)

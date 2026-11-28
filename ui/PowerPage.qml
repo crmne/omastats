@@ -51,6 +51,7 @@ Column {
 
     // A measured total is one series; an estimate shows its two parts.
     HistoryGraph {
+      historyLength: root.service ? root.service.historyLength : 240
       width: parent.width
       visible: root.summary.total !== null
       height: visible ? Style.space(64) : 0

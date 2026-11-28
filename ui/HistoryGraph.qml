@@ -18,6 +18,7 @@ Canvas {
   property real headroom: 1.06
   property int barWidth: 2
   property int gap: 1
+  property int historyLength: 240
   property bool showBaseline: true
   property color baselineColor: Util.alpha(Commons.Color.popups.text, 0.14)
 
@@ -35,6 +36,7 @@ Canvas {
   onColorsChanged: requestPaint()
   onSampleColorsChanged: requestPaint()
   onCeilingChanged: requestPaint()
+  onHistoryLengthChanged: requestPaint()
   onWidthChanged: requestPaint()
   onHeightChanged: requestPaint()
   onBaselineColorChanged: requestPaint()
@@ -50,7 +52,8 @@ Canvas {
     var snap = function(v) { return Math.round(v * dpr) / dpr }
     var list = Array.isArray(root.series) ? root.series : []
     var count = list.length
-    var n = root.capacity
+    var n = Math.min(root.capacity, Math.max(1, root.historyLength))
+    var step = root.historyLength < root.capacity ? (width + root.gap) / Math.max(1, root.historyLength) : root.pitch
     var len = 0
     for (var s = 0; s < count; s++) if (list[s] && list[s].length > len) len = list[s].length
 
@@ -70,7 +73,7 @@ Canvas {
     for (var b = 0; b < n; b++) {
       var idx = len - n + b
       if (idx < 0) continue
-      var x = width - (n - b) * root.pitch + root.gap
+      var x = width - (n - b) * step + root.gap
       var y = height - baseH
       for (var c = 0; c < count; c++) {
         var v = Number(list[c] ? list[c][idx] : 0) || 0
@@ -84,7 +87,7 @@ Canvas {
         var sampleColor = Array.isArray(perSeries) ? perSeries[idx] : null
         ctx.globalAlpha = c === 1 && sampleColor ? 0.62 : 1
         ctx.fillStyle = sampleColor || root.colors[c] || Commons.Color.accent
-        ctx.fillRect(snap(x), top, Math.max(1 / dpr, snap(root.barWidth)), bottom - top)
+        ctx.fillRect(snap(x), top, Math.max(1 / dpr, snap(step - root.gap)), bottom - top)
         ctx.globalAlpha = 1
         y -= h
       }
